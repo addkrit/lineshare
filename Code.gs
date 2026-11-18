@@ -68,6 +68,8 @@ function route_(p) {
     case 'campaignSave': return campaignSave_(p);
     case 'campaignDelete': return campaignDelete_(p);
     case 'setMain': return setMain_(p);
+    case 'teamMe': return teamMe_(p);
+    case 'teamBoard': return teamBoard_(p);
     default: throw new Error('คำสั่งไม่ถูกต้อง: ' + p.action);
   }
 }
@@ -270,14 +272,18 @@ function join_(p) {
       bump_(sh, row, M.VISITS);
     } else {
       isNew = true;
-      let level = 1;
+      let level = 1, team = null;
       const refRow = findRow_(sh, M.REF, p.r);
       if (refRow) {
-        const rv = sh.getRange(refRow, 1, 1, M_W).getValues()[0];
+        const rv = sh.getRange(refRow, 1, 1, TEAM_NAME_COL).getValues()[0];
         if (rv[M.UID - 1] !== uid) {
           by = { id: rv[M.UID - 1], name: rv[M.NAME - 1] };
           level = (Number(rv[M.LEVEL - 1]) || 1) + 1;
           bump_(sh, refRow, M.INVITED);
+          // ทีมของใคร: ผู้ชวนเป็นทีมงาน → ทีมของผู้ชวน · ไม่ใช่ → ทีมเดียวกับผู้ชวน (นับให้ทีมงานที่ใกล้ที่สุดในสาย)
+          const ts = teamSet_();
+          if (ts[by.id]) team = { id: by.id, name: ts[by.id] };
+          else if (rv[TEAM_COL - 1]) team = { id: String(rv[TEAM_COL - 1]), name: String(rv[TEAM_NAME_COL - 1]) };
         }
       }
       let ref = rand_(7);
@@ -285,6 +291,7 @@ function join_(p) {
       row = sh.getLastRow() + 1;
       sh.getRange(row, 1, 1, M_W).setValues([[uid].concat(infoRow, [
         txt_(ref), by ? by.id : '', by ? txt_(by.name) : '', camp.id, txt_(p.src || ''), now, now, 1, 0, 0, level])]);
+      if (team) sh.getRange(row, TEAM_COL, 1, 2).setValues([[team.id, txt_(team.name)]]);
       camp.joined = bump_(tab_(T_CAMPAIGNS), camp.row, C.JOINED);
     }
     const v = sh.getRange(row, 1, 1, M_W).getValues()[0];
@@ -302,6 +309,7 @@ function join_(p) {
     shareUrl: shareUrl_(camp.id, result.me.ref),
     message: render_(camp, result.me),
     admin: isAdmin_(uid),
+    team: !!teamSet_()[uid],
   };
 }
 
@@ -343,21 +351,26 @@ function requireAdmin_(p) {
   return uid;
 }
 
-// ใส่รหัสแอดมิน (ดูได้จาก Run showAdminCode ใน Apps Script) → เพิ่มตัวเองเป็นแอดมิน
+// ใส่รหัส: รหัสแอดมิน (showAdminCode) → แอดมิน · รหัสทีมงาน (showTeamCode) → ทีมงาน
 function adminClaim_(p) {
   const uid = checkSession_(p.session);
   const cache = CacheService.getScriptCache();
   const k = 'claim_' + uid;
   const tries = Number(cache.get(k)) || 0;
   if (tries >= 5) throw new Error('ใส่รหัสผิดหลายครั้ง ลองใหม่ใน 1 ชั่วโมง');
-  const code = PropertiesService.getScriptProperties().getProperty('ADMIN_CODE');
-  if (!code || String(p.code || '').trim() !== code) {
+  const props = PropertiesService.getScriptProperties();
+  const input = String(p.code || '').trim();
+  const adminCode = props.getProperty('ADMIN_CODE'), teamCode = props.getProperty('TEAM_CODE');
+  const role = adminCode && input === adminCode ? 'admin' : (teamCode && input === teamCode ? 'team' : '');
+  if (!role) {
     cache.put(k, String(tries + 1), 3600);
-    throw new Error('รหัสแอดมินไม่ถูกต้อง');
+    throw new Error('รหัสไม่ถูกต้อง');
   }
   return withLock_(function () {
-    if (!isAdmin_(uid)) tab_(T_ADMINS).appendRow([uid, txt_(member_(uid).name), new Date()]);
-    return { ok: true };
+    const me = member_(uid);
+    if (role === 'admin' && !isAdmin_(uid)) tab_(T_ADMINS).appendRow([uid, txt_(me.name), new Date()]);
+    if (role === 'team') addTeam_(uid, me);
+    return { ok: true, role: role };
   });
 }
 
@@ -545,6 +558,7 @@ function processImages() {
   cache.put('img_running', '1', 300);
   try {
     try { sweepCampaigns_(); } catch (e) { console.error(e); }
+    try { maybeTeamJobs_(); } catch (e) { console.error(e); }
     const sh = tab_(T_MEMBERS);
     if (sh.getRange(1, IMG_COL).getValue() !== 'รูป') {
       sh.getRange(1, IMG_COL, 1, 2).setValues([['รูป', 'ไฟล์รูป (Drive)']]).setFontWeight('bold').setBackground('#e8f5e9');
@@ -801,6 +815,10 @@ function fixSplitPaste_(sh, range) {
 function onSheetEdit(e) {
   if (!e || !e.range) return;
   const sh = e.range.getSheet();
+  if (sh.getName() === T_REPORT) {          // เปลี่ยนปี / ตัวเลข ในรายงานทีม → สร้างรายงานใหม่ทันที
+    if (e.range.getRow() === 1) buildTeamReport_();
+    return;
+  }
   if (sh.getName() !== T_CAMPAIGNS) return;
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return;
@@ -842,4 +860,283 @@ function setupCampaignTools() {
   });
   ScriptApp.newTrigger('onSheetEdit').forSpreadsheet(SHEET_ID).onEdit().create();
   Logger.log('เสร็จ — ย้ายแคมเปญเดิม ' + moved + ' แถว · แคมเปญหลัก: ' + mainCampaignId_() + ' · ตัวตรวจอัตโนมัติพร้อม');
+}
+
+// ---------- ทีมงาน: นับยอด แชร์ / ชวนตรง / สายส่งต่อ แยกรายคน รายเดือน รายปี ----------
+// ติดตั้งครั้งเดียว: เลือก setupTeam > เรียกใช้ (สร้างแท็บ "ทีมงาน" + "รายงานทีม" + รหัสทีมงาน)
+// ทีมงานเข้าร่วม: เปิด https://liff.line.me/<LIFF_ID>?team=1 ในแอป LINE > ใส่รหัสทีมงาน (ครั้งเดียว)
+// ถอดออกจากทีม: ลบแถวของคนนั้นในแท็บ "ทีมงาน" (ระบบคำนวณสายใหม่ให้เองภายใน 1 นาที)
+const T_TEAM = 'ทีมงาน', T_REPORT = 'รายงานทีม';
+const TEAM_COL = 24, TEAM_NAME_COL = 25;   // members: X = ทีมของ (userId), Y = ทีมของ (ชื่อ)
+const TEAM_HEAD = ['userId', 'ชื่อ LINE', 'รหัสแนะนำ', 'ลิงก์ส่วนตัว (โพสต์ที่ไหนก็นับให้คนนี้)', 'เข้าร่วมทีม', 'หมายเหตุ'];
+const METRICS = { chain: 'สายทั้งหมด (คน)', direct: 'ชวนตรง (คน)', shares: 'แชร์ (ครั้ง)' };
+const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+function personalLink_(ref) { return 'https://liff.line.me/' + LIFF_ID + '?r=' + encodeURIComponent(ref); }
+
+function teamTab_() {
+  const ss = ss_();
+  let sh = ss.getSheetByName(T_TEAM);
+  if (sh) return sh;
+  sh = ss.insertSheet(T_TEAM);
+  sh.getRange(1, 1, 1, TEAM_HEAD.length).setValues([TEAM_HEAD]).setFontWeight('bold').setBackground('#e8f5e9');
+  sh.setFrozenRows(1);
+  [300, 170, 90, 380, 130, 200].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  return sh;
+}
+
+// userId → ชื่อ ของทีมงานทุกคน (แคช 5 นาที)
+function teamSet_(fresh) {
+  const cache = CacheService.getScriptCache();
+  const hit = fresh ? null : cache.get('team_set');
+  if (hit) return JSON.parse(hit);
+  const sh = ss_().getSheetByName(T_TEAM);
+  const set = {};
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      const id = String(r[0]).trim();
+      if (id) set[id] = String(r[1]);
+    });
+  }
+  cache.put('team_set', JSON.stringify(set), 300);
+  return set;
+}
+
+function addTeam_(uid, me) {
+  const sh = teamTab_();
+  if (findRow_(sh, 1, uid)) return;
+  sh.appendRow([uid, txt_(me.name), txt_(me.ref), personalLink_(me.ref), new Date(), '']);
+  CacheService.getScriptCache().removeAll(['team_set', 'team_stats_' + ym_(new Date())[0]]);
+  PropertiesService.getScriptProperties().setProperty('TEAM_DIRTY', '1');
+}
+
+// คำนวณ "ทีมของ" ใหม่ทุกคน: ไล่ขึ้นสายผู้ชวนจนเจอทีมงานคนแรก (ใกล้ที่สุด) — ใช้ตอนเพิ่ม/ถอดทีมงาน
+function recomputeTeams_() {
+  const sh = tab_(T_MEMBERS);
+  sh.getRange(1, TEAM_COL, 1, 2).setValues([['ทีมของ (userId)', 'ทีมของ (ชื่อ)']]).setFontWeight('bold').setBackground('#e8f5e9');
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return 0;
+  const ids = sh.getRange(2, M.UID, n, 1).getValues();
+  const by = sh.getRange(2, M.BY_ID, n, 1).getValues();
+  const cur = sh.getRange(2, TEAM_COL, n, 1).getValues();
+  const team = teamSet_(true);
+  const parent = {};
+  ids.forEach(function (r, i) { parent[String(r[0])] = String(by[i][0]); });
+  let changed = 0;
+  const out = ids.map(function (r, i) {
+    let p = parent[String(r[0])], guard = 0;
+    while (p && !team[p] && guard++ < 10000) p = parent[p];
+    const t = p && team[p] ? [p, txt_(team[p])] : ['', ''];
+    if (String(cur[i][0]) !== t[0]) changed++;
+    return t;
+  });
+  if (changed) sh.getRange(2, TEAM_COL, n, 2).setValues(out);
+  return changed;
+}
+
+// ปี/เดือน ตามเวลาไทย (UTC+7)
+function ym_(d) {
+  if (!(d instanceof Date)) return null;
+  const t = new Date(d.getTime() + 7 * 3600 * 1000);
+  return [t.getUTCFullYear(), t.getUTCMonth() + 1];
+}
+
+// ยอดของทีมงานทุกคน: m = เดือนนี้, y = ปีที่เลือก, all = ทั้งหมด + รายเดือน 12 ช่องของปีที่เลือก
+function teamStats_(year) {
+  const nowYm = ym_(new Date());
+  year = Number(year) || nowYm[0];
+  const team = teamSet_();
+  const S = {};
+  const z = function () { return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; };
+  Object.keys(team).forEach(function (id) {
+    S[id] = { id: id, name: team[id], picture: '', ref: '', link: '', level: 1, maxLevel: 1, depth: 0,
+      shares: { m: 0, y: 0, all: 0 }, direct: { m: 0, y: 0, all: 0 }, chain: { m: 0, y: 0, all: 0 },
+      monthly: { shares: z(), direct: z(), chain: z() } };
+  });
+  const add = function (s, key, d) {
+    const t = ym_(d);
+    s[key].all++;
+    if (!t) return;
+    if (t[0] === year) { s[key].y++; s.monthly[key][t[1] - 1]++; }
+    if (t[0] === nowYm[0] && t[1] === nowYm[1]) s[key].m++;
+  };
+  const mem = tab_(T_MEMBERS);
+  const n = mem.getLastRow() - 1;
+  if (n >= 1) {
+    const col = function (c) { return mem.getRange(2, c, n, 1).getValues(); };
+    const uid = col(M.UID), pic = col(M.PIC), ref = col(M.REF), by = col(M.BY_ID), first = col(M.FIRST),
+      lvl = col(M.LEVEL), tm = col(TEAM_COL);
+    for (let i = 0; i < n; i++) {
+      const s = S[String(uid[i][0])];
+      if (s) {
+        s.picture = String(pic[i][0]); s.ref = String(ref[i][0]); s.link = personalLink_(s.ref);
+        s.level = Number(lvl[i][0]) || 1;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const d = S[String(by[i][0])], t = S[String(tm[i][0])];
+      if (d) add(d, 'direct', first[i][0]);
+      if (t) { add(t, 'chain', first[i][0]); t.maxLevel = Math.max(t.maxLevel, Number(lvl[i][0]) || 1); }
+    }
+  }
+  const ev = tab_(T_EVENTS);
+  const ne = ev.getLastRow() - 1;
+  if (ne >= 1) {
+    ev.getRange(2, 1, ne, 4).getValues().forEach(function (r) {
+      const s = S[String(r[1])];
+      if (s && (r[3] === 'แชร์' || r[3] === 'ส่งในแชท')) add(s, 'shares', r[0]);
+    });
+  }
+  const list = Object.keys(S).map(function (id) {
+    const s = S[id];
+    s.depth = s.chain.all ? Math.max(0, s.maxLevel - s.level) : 0;
+    return s;
+  });
+  return { year: year, curY: nowYm[0], curM: nowYm[1], list: list };
+}
+
+function cachedTeamStats_() {
+  const cache = CacheService.getScriptCache();
+  const key = 'team_stats_' + ym_(new Date())[0];
+  const hit = cache.get(key);
+  if (hit) return JSON.parse(hit);
+  const st = teamStats_();
+  try { cache.put(key, JSON.stringify(st), 120); } catch (e) {}
+  return st;
+}
+
+// ทีมงานดูยอดของตัวเอง
+function teamMe_(p) {
+  const uid = checkSession_(p.session);
+  if (!teamSet_()[uid]) return { ok: true, team: false };
+  const st = cachedTeamStats_();
+  const me = st.list.filter(function (x) { return x.id === uid; })[0];
+  if (!me) return { ok: true, team: false };
+  const rank = function (k) { return 1 + st.list.filter(function (x) { return x.chain[k] > me.chain[k]; }).length; };
+  return { ok: true, team: true, me: me, rank: { m: rank('m'), y: rank('y'), all: rank('all') },
+    size: st.list.length, year: st.curY, month: MONTHS_TH[st.curM - 1] };
+}
+
+// แอดมินดูอันดับทีมงานทุกคน
+function teamBoard_(p) {
+  requireAdmin_(p);
+  const st = cachedTeamStats_();
+  return { ok: true, year: st.curY, month: MONTHS_TH[st.curM - 1], list: st.list,
+    joinLink: 'https://liff.line.me/' + LIFF_ID + '?team=1' };
+}
+
+function reportTab_() {
+  const ss = ss_();
+  let sh = ss.getSheetByName(T_REPORT);
+  if (sh) return sh;
+  const y = ym_(new Date())[0];
+  sh = ss.insertSheet(T_REPORT, 1);
+  sh.getRange('A1:H1').setValues([['ปี', y, '', 'ตัวเลขรายเดือน', METRICS.chain, '', 'อัปเดตล่าสุด', '']]);
+  sh.getRange('B1').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList([y - 1, y, y + 1, y + 2, y + 3].map(String), true).build());
+  sh.getRange('E1').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(Object.keys(METRICS).map(function (k) { return METRICS[k]; }), true).build());
+  sh.getRange('A1:H1').setFontWeight('bold');
+  sh.getRange('B1').setBackground('#fff8e1');
+  sh.getRange('E1').setBackground('#fff8e1');
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(1, 60);
+  sh.setColumnWidth(2, 190);
+  for (let c = 3; c <= 15; c++) sh.setColumnWidth(c, 78);
+  sh.setColumnWidth(5, 150);
+  return sh;
+}
+
+// สร้างตาราง "รายงานทีม": ส่วนที่ 1 สรุป (เดือนนี้ / ปีที่เลือก / ทั้งหมด) · ส่วนที่ 2 รายเดือน ม.ค.–ธ.ค.
+function buildTeamReport_() {
+  const sh = reportTab_();
+  const year = Number(sh.getRange('B1').getValue()) || ym_(new Date())[0];
+  const label = String(sh.getRange('E1').getValue());
+  const key = Object.keys(METRICS).filter(function (k) { return METRICS[k] === label; })[0] || 'chain';
+  const st = teamStats_(year);
+  const W = 15;
+  if (sh.getMaxRows() > 2) sh.getRange(2, 1, sh.getMaxRows() - 1, Math.max(sh.getMaxColumns(), W)).clear();
+  sh.getRange('H1').setValue(Utilities.formatDate(new Date(), TZ, 'd/M/yyyy HH:mm'));
+  sh.getRange('A2').setValue('สายทั้งหมด = ทุกคนที่ต่อมาจากทีมงานคนนั้นทุกชั้น (นับให้ทีมงานที่ใกล้ที่สุดในสาย) · ' +
+    'ชวนตรง = กดการ์ด/ลิงก์ของเขาเองแล้วเข้ามา · แชร์ = กดแชร์สำเร็จ (LINE ไม่บอกจำนวนผู้รับ) · อัปเดตเองทุก 15 นาที / เมื่อเปลี่ยน B1, E1')
+    .setFontColor('#666666');
+  const pad = function (r) { while (r.length < W) r.push(''); return r; };
+  const sum = function (list, f) { return list.reduce(function (a, s) { return a + f(s); }, 0); };
+
+  // ส่วนที่ 1: สรุป
+  const list = st.list.slice().sort(function (a, b) { return b.chain.y - a.chain.y || b.chain.all - a.chain.all || b.direct.all - a.direct.all; });
+  const rows = [
+    pad(['', '', 'เดือนนี้ (' + MONTHS_TH[st.curM - 1] + ' ' + st.curY + ')', '', '', 'ปี ' + year, '', '', 'ทั้งหมด', '', '', '', '']),
+    pad(['อันดับ', 'ทีมงาน', 'แชร์', 'ชวนตรง', 'สายทั้งหมด', 'แชร์', 'ชวนตรง', 'สายทั้งหมด', 'แชร์', 'ชวนตรง', 'สายทั้งหมด', 'ลึกสุด (ชั้น)', 'ลิงก์ส่วนตัว']),
+  ];
+  list.forEach(function (s, i) {
+    rows.push(pad([i + 1, s.name, s.shares.m, s.direct.m, s.chain.m, s.shares.y, s.direct.y, s.chain.y,
+      s.shares.all, s.direct.all, s.chain.all, s.depth, s.link]));
+  });
+  if (!list.length) rows.push(pad(['', 'ยังไม่มีทีมงาน — ให้ทีมงานเปิด https://liff.line.me/' + LIFF_ID + '?team=1 ในแอป LINE แล้วใส่รหัสทีมงาน']));
+  rows.push(pad(['', 'รวมทั้งทีม',
+    sum(list, function (s) { return s.shares.m; }), sum(list, function (s) { return s.direct.m; }), sum(list, function (s) { return s.chain.m; }),
+    sum(list, function (s) { return s.shares.y; }), sum(list, function (s) { return s.direct.y; }), sum(list, function (s) { return s.chain.y; }),
+    sum(list, function (s) { return s.shares.all; }), sum(list, function (s) { return s.direct.all; }), sum(list, function (s) { return s.chain.all; }), '', '']));
+  const r1 = 4;
+  sh.getRange(r1, 1, rows.length, W).setValues(rows);
+  sh.getRange(r1, 1, 2, W).setFontWeight('bold').setBackground('#e8f5e9');
+  sh.getRange(r1 + rows.length - 1, 1, 1, W).setFontWeight('bold').setBackground('#f1f3f4');
+
+  // ส่วนที่ 2: รายเดือน
+  const r2 = r1 + rows.length + 2;
+  const list2 = st.list.slice().sort(function (a, b) { return b[key].y - a[key].y || b[key].all - a[key].all; });
+  const rows2 = [
+    pad(['รายเดือน ปี ' + year + ' — ' + METRICS[key] + '  (เปลี่ยนตัวเลขที่ช่อง E1 / ปีที่ช่อง B1)']),
+    pad(['อันดับ', 'ทีมงาน'].concat(MONTHS_TH, ['รวมปี'])),
+  ];
+  list2.forEach(function (s, i) { rows2.push(pad([i + 1, s.name].concat(s.monthly[key], [s[key].y]))); });
+  const tot = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(function (m) { return sum(list2, function (s) { return s.monthly[key][m]; }); });
+  rows2.push(pad(['', 'รวมทั้งทีม'].concat(tot, [sum(list2, function (s) { return s[key].y; })])));
+  sh.getRange(r2, 1, rows2.length, W).setValues(rows2);
+  sh.getRange(r2, 1, 1, W).setFontWeight('bold');
+  sh.getRange(r2 + 1, 1, 1, W).setFontWeight('bold').setBackground('#e8f5e9');
+  sh.getRange(r2 + rows2.length - 1, 1, 1, W).setFontWeight('bold').setBackground('#f1f3f4');
+  return list.length;
+}
+
+// งานทุก 1 นาที (จาก processImages): ทีมเปลี่ยน → คำนวณสายใหม่ · รายงานเก่าเกิน 15 นาที → สร้างใหม่
+function maybeTeamJobs_() {
+  const sh = ss_().getSheetByName(T_TEAM);
+  if (!sh) return;
+  const props = PropertiesService.getScriptProperties();
+  const ids = sh.getLastRow() >= 2 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues()
+    .map(function (r) { return String(r[0]).trim(); }).filter(String).sort().join(',') : '';
+  const sig = campaignSig_(ids, 'team');
+  const dirty = props.getProperty('TEAM_SIG') !== sig || props.getProperty('TEAM_DIRTY') === '1';
+  if (dirty) {
+    CacheService.getScriptCache().remove('team_set');
+    withLock_(recomputeTeams_);
+    props.setProperty('TEAM_SIG', sig);
+    props.deleteProperty('TEAM_DIRTY');
+  }
+  if (dirty || Date.now() - Number(props.getProperty('REPORT_AT') || 0) > 15 * 60 * 1000) {
+    buildTeamReport_();
+    props.setProperty('REPORT_AT', String(Date.now()));
+  }
+}
+
+function setupTeam() {
+  teamTab_();
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('TEAM_CODE')) {
+    let c;
+    do { c = String(Math.floor(100000 + Math.random() * 900000)); } while (c === props.getProperty('ADMIN_CODE'));
+    props.setProperty('TEAM_CODE', c);
+  }
+  CacheService.getScriptCache().remove('team_set');
+  withLock_(recomputeTeams_);
+  buildTeamReport_();
+  props.setProperty('REPORT_AT', String(Date.now()));
+  showTeamCode();
+}
+
+function showTeamCode() {
+  Logger.log('รหัสทีมงาน: ' + PropertiesService.getScriptProperties().getProperty('TEAM_CODE') +
+    ' · ลิงก์ให้ทีมงานเปิดในแอป LINE: https://liff.line.me/' + LIFF_ID + '?team=1');
 }

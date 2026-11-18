@@ -108,15 +108,30 @@
       <button class="btn plain" id="btnCopy">🔗 คัดลอกลิงก์ของฉัน</button>
       <p class="muted" style="margin-bottom:0">ทุกคนที่เปิดจากการ์ดหรือลิงก์ของคุณ จะนับเป็นคนที่คุณชวน และเขาก็แชร์ต่อได้เรื่อยๆ</p>
     </div>
+    <!-- ทีมงาน: ยอดของตัวเอง -->
+    <div class="card" id="teamCard" hidden>
+      <h2>👥 ยอดของคุณ (ทีมงาน)</h2>
+      <div class="tabs" id="tmPeriod">
+        <button data-p="m" class="on">เดือนนี้</button><button data-p="y">ปีนี้</button><button data-p="all">ทั้งหมด</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><b id="tmChain">0</b><span>สายทั้งหมด (คน)</span></div>
+        <div class="stat"><b id="tmDirect">0</b><span>ชวนตรง (คน)</span></div>
+        <div class="stat"><b id="tmShares">0</b><span>แชร์ (ครั้ง)</span></div>
+      </div>
+      <p class="muted" id="tmRank"></p>
+      <button class="btn ghost" id="btnTeamLink">🔗 คัดลอกลิงก์ทีมงานของฉัน (โพสต์ที่ไหนก็นับให้คุณ)</button>
+      <p class="muted" style="margin-bottom:0">สายทั้งหมด = ทุกคนที่ต่อมาจากคุณทุกชั้น · ชวนตรง = กดการ์ด/ลิงก์ของคุณเอง · อัปเดตทุก 2 นาที</p>
+    </div>
     <button class="btn plain" id="btnAdmin" hidden>⚙️ หน้าแอดมิน</button>
     <p class="muted center"><a href="privacy.html">นโยบายความเป็นส่วนตัว</a></p>
   </section>
 
-  <!-- แอดมิน: ใส่รหัส -->
+  <!-- ใส่รหัส: แอดมิน / ทีมงาน -->
   <section id="vClaim" class="view" hidden>
     <div class="card">
-      <h2>เข้าหน้าแอดมิน</h2>
-      <p class="muted">ใส่รหัสแอดมิน (ดูได้ใน Apps Script: เลือกฟังก์ชัน <code>showAdminCode</code> แล้วกด Run)</p>
+      <h2 id="claimTitle">เข้าหน้าแอดมิน</h2>
+      <p class="muted" id="claimHelp">ใส่รหัสแอดมิน (ดูได้ใน Apps Script: เลือกฟังก์ชัน <code>showAdminCode</code> แล้วกด Run)</p>
       <input type="text" id="claimCode" inputmode="numeric" placeholder="รหัส 6 หลัก">
       <button class="btn primary" id="btnClaim">ยืนยัน</button>
     </div>
@@ -125,8 +140,18 @@
   <!-- แอดมิน -->
   <section id="vAdmin" class="view" hidden>
     <div class="tabs">
-      <button id="tabStats" class="on">ภาพรวม</button>
-      <button id="tabCamps">แคมเปญ</button>
+      <button id="tabStats" class="on" data-pane="paneStats">ภาพรวม</button>
+      <button id="tabTeam" data-pane="paneTeam">ทีมงาน</button>
+      <button id="tabCamps" data-pane="paneCamps">แคมเปญ</button>
+    </div>
+
+    <div id="paneTeam" hidden>
+      <div class="tabs" id="tbPeriod">
+        <button data-p="m" class="on">เดือนนี้</button><button data-p="y">ปีนี้</button><button data-p="all">ทั้งหมด</button>
+      </div>
+      <div class="card"><h2 id="tbTitle">อันดับทีมงาน</h2><div class="list" id="tbList"></div></div>
+      <button class="btn ghost" id="btnTeamJoin">🔗 คัดลอกลิงก์เข้าร่วมทีม (ส่งให้ทีมงาน)</button>
+      <p class="muted center">ตารางรายเดือน ม.ค.–ธ.ค. แยกทุกคนอยู่ในชีต แท็บ "รายงานทีม" · รหัสทีมงาน: Apps Script > <code>showTeamCode</code></p>
     </div>
 
     <div id="paneStats">
@@ -257,7 +282,7 @@ async function doJoin() {
   const j = await api('join', await joinPayload());
   clearPending();
   store(() => sessionStorage.removeItem('ls_relogin'));
-  Object.assign(S, { session: j.session, message: j.message, shareUrl: j.shareUrl, camp: j.campaign, me: j.me, admin: j.admin });
+  Object.assign(S, { session: j.session, message: j.message, shareUrl: j.shareUrl, camp: j.campaign, me: j.me, admin: j.admin, team: j.team });
   return j;
 }
 
@@ -393,9 +418,57 @@ async function testSend(json, alt, id, name) {
 async function adminMain() {
   await doJoin();
   if (!S.admin) { show('vClaim'); return; }
+  openAdmin();
+}
+function openAdmin() {
   show('vAdmin');
   loadStats().catch((e) => toast(e.message));
   loadCamps().catch((e) => toast(e.message));
+}
+
+// ---------- ทีมงาน ----------
+async function teamMain() {
+  const j = await doJoin();
+  if (S.team) { renderMain(j); return loadTeamMe(); }
+  $('#claimTitle').textContent = 'เข้าร่วมทีมงาน';
+  $('#claimHelp').textContent = 'ใส่รหัสทีมงานที่ได้จากแอดมิน (ใส่ครั้งเดียว) แล้วคุณจะเห็นยอดแชร์/ชวนของตัวเอง';
+  $('#claimCode').placeholder = 'รหัสทีมงาน 6 หลัก';
+  show('vClaim');
+}
+async function loadTeamMe() {
+  try {
+    const r = await api('teamMe', { session: S.session });
+    if (!r.team) return;
+    S.tm = r;
+    $('#teamCard').hidden = false;
+    showTeamPeriod(S.tmP || 'm');
+  } catch (e) { toast(e.message); }
+}
+function periodName(p, r) { return p === 'm' ? 'เดือน' + r.month + ' ' + r.year : (p === 'y' ? 'ปี ' + r.year : 'ทั้งหมด'); }
+function showTeamPeriod(p) {
+  S.tmP = p;
+  document.querySelectorAll('#tmPeriod button').forEach((b) => b.classList.toggle('on', b.dataset.p === p));
+  const m = S.tm.me;
+  $('#tmChain').textContent = m.chain[p];
+  $('#tmDirect').textContent = m.direct[p];
+  $('#tmShares').textContent = m.shares[p];
+  $('#tmRank').textContent = periodName(p, S.tm) + ' · อันดับ ' + S.tm.rank[p] + ' จาก ' + S.tm.size + ' คน (วัดจากสายทั้งหมด)' +
+    (p === 'all' ? ' · สายลึกสุด ' + m.depth + ' ชั้น' : '');
+}
+async function loadTeamBoard() {
+  const r = await api('teamBoard', { session: S.session });
+  S.tb = r;
+  showBoard(S.tbP || 'm');
+}
+function showBoard(p) {
+  S.tbP = p;
+  document.querySelectorAll('#tbPeriod button').forEach((b) => b.classList.toggle('on', b.dataset.p === p));
+  const list = S.tb.list.slice().sort((a, b) => b.chain[p] - a.chain[p] || b.direct[p] - a.direct[p] || b.shares[p] - a.shares[p]);
+  $('#tbTitle').textContent = 'อันดับทีมงาน — ' + periodName(p, S.tb) + ' (' + list.length + ' คน)';
+  $('#tbList').innerHTML = list.length ? list.map((s, i) => person(s,
+    '#' + (i + 1) + ' · สาย <span class="num">' + s.chain[p] + '</span> คน · ชวนตรง ' + s.direct[p] + ' · แชร์ ' + s.shares[p] +
+    (p === 'all' ? ' · ลึก ' + s.depth + ' ชั้น' : ''))).join('')
+    : '<p class="muted">ยังไม่มีทีมงาน — กดปุ่มด้านล่างคัดลอกลิงก์เข้าร่วมทีม ส่งให้ทีมงานพร้อมรหัสทีมงาน</p>';
 }
 
 // ---------- ปุ่ม ----------
@@ -407,12 +480,26 @@ $('#btnFriend').onclick = () => liff.openWindow({ url: 'https://line.me/R/ti/p/'
 $('#btnAdmin').onclick = () => { location.search = '?admin=1'; };
 $('#btnClaim').onclick = async () => {
   $('#btnClaim').disabled = true;
-  try { await api('adminClaim', { session: S.session, code: $('#claimCode').value }); S.admin = true; show('vAdmin'); loadStats(); loadCamps(); }
-  catch (e) { toast(e.message); }
+  try {
+    const r = await api('adminClaim', { session: S.session, code: $('#claimCode').value });
+    if (r.role === 'admin') { S.admin = true; toast('เป็นแอดมินแล้ว'); openAdmin(); }
+    else { S.team = true; toast('เข้าร่วมทีมงานแล้ว 🎉'); renderMain({ isNew: false }); await loadTeamMe(); }
+  } catch (e) { toast(e.message); }
   $('#btnClaim').disabled = false;
 };
-$('#tabStats').onclick = () => { $('#tabStats').classList.add('on'); $('#tabCamps').classList.remove('on'); $('#paneStats').hidden = false; $('#paneCamps').hidden = true; };
-$('#tabCamps').onclick = () => { $('#tabCamps').classList.add('on'); $('#tabStats').classList.remove('on'); $('#paneCamps').hidden = false; $('#paneStats').hidden = true; };
+document.querySelectorAll('#vAdmin > .tabs button').forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll('#vAdmin > .tabs button').forEach((b) => {
+      b.classList.toggle('on', b === btn);
+      $('#' + b.dataset.pane).hidden = b !== btn;
+    });
+    if (btn.dataset.pane === 'paneTeam') loadTeamBoard().catch((e) => toast(e.message));
+  };
+});
+$('#tmPeriod').onclick = (ev) => { const b = ev.target.closest('button'); if (b && S.tm) showTeamPeriod(b.dataset.p); };
+$('#tbPeriod').onclick = (ev) => { const b = ev.target.closest('button'); if (b && S.tb) showBoard(b.dataset.p); };
+$('#btnTeamLink').onclick = () => copyText(S.tm.me.link, 'คัดลอกลิงก์ทีมงานของคุณแล้ว');
+$('#btnTeamJoin').onclick = () => copyText((S.tb && S.tb.joinLink) || ('https://liff.line.me/' + CFG.LIFF_ID + '?team=1'), 'คัดลอกลิงก์เข้าร่วมทีมแล้ว');
 $('#aRefresh').onclick = () => loadStats().then(() => toast('อัปเดตแล้ว')).catch((e) => toast(e.message));
 $('#campList').onclick = (ev) => {
   const b = ev.target.closest('button'); if (!b) return;
@@ -463,8 +550,10 @@ $('#btnDel').onclick = async () => {
   }
   try {
     if (S.params.has('admin')) return await adminMain();
+    if (S.params.has('team')) return await teamMain();
     const j = await doJoin();
     renderMain(j);
+    if (S.team) loadTeamMe();
     if (CFG.AUTO_SHARE && j.isNew && liff.isInClient()) setTimeout(share, 500);
   } catch (e) { handleErr(e); }
 })();
