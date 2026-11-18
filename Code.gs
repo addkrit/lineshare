@@ -1031,7 +1031,7 @@ function reportTab_() {
   if (sh) return sh;
   const y = ym_(new Date())[0];
   sh = ss.insertSheet(T_REPORT, 1);
-  sh.getRange('A1:H1').setValues([['ปี', y, '', 'ตัวเลขรายเดือน', METRICS.chain, '', 'อัปเดตล่าสุด', '']]);
+  sh.getRange('A1:H1').setValues([['ปี', y, 'ตัวเลขรายเดือน →', '', METRICS.chain, '', 'อัปเดตล่าสุด', '']]);
   sh.getRange('B1').setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList([y - 1, y, y + 1, y + 2, y + 3].map(String), true).build());
   sh.getRange('E1').setDataValidation(SpreadsheetApp.newDataValidation()
@@ -1044,6 +1044,7 @@ function reportTab_() {
   sh.setColumnWidth(2, 190);
   for (let c = 3; c <= 15; c++) sh.setColumnWidth(c, 78);
   sh.setColumnWidth(5, 150);
+  sh.setColumnWidth(8, 120);
   return sh;
 }
 
