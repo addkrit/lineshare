@@ -30,9 +30,11 @@ const M_HEAD = ['userId', 'ชื่อ LINE', 'รูปโปรไฟล์',
   'เป็นเพื่อน OA', 'เปิดจาก', 'รหัสแนะนำ', 'ผู้ชวน (userId)', 'ผู้ชวน (ชื่อ)', 'แคมเปญแรก', 'แหล่งที่มา',
   'ลงทะเบียน', 'เข้าล่าสุด', 'เข้า (ครั้ง)', 'แชร์ (ครั้ง)', 'ชวนสำเร็จ (คน)', 'ชั้นที่'];
 const E_HEAD = ['เวลา', 'userId', 'ชื่อ', 'การกระทำ', 'แคมเปญ', 'ผู้ชวน (userId)', 'รายละเอียด'];
-const C = { ID: 1, NAME: 2, ALT: 3, ACTIVE: 4, JOINED: 5, SHARES: 6, CREATED: 7, UPDATED: 8, NOTE: 9, JSON: 10 };
-const C_HEAD = ['id', 'ชื่อแคมเปญ', 'ข้อความแจ้งเตือน (altText)', 'เปิดใช้', 'คนเข้าร่วม', 'แชร์ (ครั้ง)',
-  'สร้าง', 'แก้ไขล่าสุด', 'หมายเหตุ', 'Flex JSON (แบ่งหลายช่อง แก้ในหน้าแอดมินเท่านั้น)'];
+const T_SETTINGS = 'ตั้งค่า';
+const C = { ID: 1, NAME: 2, ALT: 3, ACTIVE: 4, STATUS: 5, LINK: 6, JOINED: 7, SHARES: 8, CREATED: 9, UPDATED: 10, NOTE: 11, JSON: 12 };
+const C_HEAD = ['id', 'ชื่อแคมเปญ', 'ข้อความแจ้งเตือน (altText)', 'เปิดใช้', 'สถานะ (ระบบเช็กให้)', 'ลิงก์แคมเปญ',
+  'คนเข้าร่วม', 'แชร์ (ครั้ง)', 'สร้าง', 'แก้ไขล่าสุด', 'หมายเหตุ',
+  'Flex JSON ← ดับเบิลคลิกช่องก่อนวาง (ยาวเกิน 50,000 ตัวอักษร แบ่งต่อช่องขวาได้)'];
 const A_HEAD = ['userId', 'ชื่อ', 'เพิ่มเมื่อ'];
 const CHUNK = 40000;   // ตัวอักษรต่อช่อง (Sheet รับได้ 50,000)
 const P = '~';         // prefix ของ JSON ในช่อง กัน Sheet แปลงเป็นสูตร
@@ -65,6 +67,7 @@ function route_(p) {
     case 'campaigns': return campaignList_(p);
     case 'campaignSave': return campaignSave_(p);
     case 'campaignDelete': return campaignDelete_(p);
+    case 'setMain': return setMain_(p);
     default: throw new Error('คำสั่งไม่ถูกต้อง: ' + p.action);
   }
 }
@@ -175,23 +178,32 @@ function campaigns_() {
     return {
       row: i + 2, id: String(r[C.ID - 1]), name: String(r[C.NAME - 1]), altText: String(r[C.ALT - 1]),
       active: r[C.ACTIVE - 1] === true || String(r[C.ACTIVE - 1]).toUpperCase() === 'TRUE',
-      joined: Number(r[C.JOINED - 1]) || 0, shares: Number(r[C.SHARES - 1]) || 0,
+      status: String(r[C.STATUS - 1] || ''), joined: Number(r[C.JOINED - 1]) || 0, shares: Number(r[C.SHARES - 1]) || 0,
       updated: r[C.UPDATED - 1], note: String(r[C.NOTE - 1] || ''), json: json,
     };
   }).filter(function (c) { return c.id; });
 }
 
-// แคมเปญตาม id (ถ้าไม่ระบุ/ไม่พบ → แคมเปญแรกที่เปิดใช้)
+// ใช้ส่งให้ลูกค้าได้ไหม: เปิดใช้ + สถานะไม่ใช่ ❌ + JSON อ่านได้
+function usable_(c) {
+  if (!c || !c.active || c.status.indexOf('❌') === 0 || !c.json) return false;
+  try { JSON.parse(c.json); return true; } catch (e) { return false; }
+}
+
+// แคมเปญหลักของลิงก์เปล่า (แท็บ "ตั้งค่า" ช่อง B2)
+function mainCampaignId_() {
+  const sh = ss_().getSheetByName(T_SETTINGS);
+  return sh ? String(sh.getRange('B2').getValue() || '').trim() : '';
+}
+
+// เลือกแคมเปญ: ?c=id ที่ใช้ได้ → ไม่งั้นแคมเปญหลัก (แท็บตั้งค่า) → ไม่งั้นแคมเปญแรกที่ใช้ได้
+// แคมเปญที่ปิด/ลบ/JSON เสีย → พาไปแคมเปญหลักแทน (สายแชร์ไม่ขาด)
 function pickCampaign_(id) {
-  const all = campaigns_();
-  if (id) {
-    const hit = all.filter(function (c) { return c.id === String(id); })[0];
-    if (hit && hit.active) return hit;
-    if (hit && !hit.active) throw new Error('แคมเปญนี้ปิดไปแล้ว');
-  }
-  const first = all.filter(function (c) { return c.active; })[0];
-  if (!first) throw new Error('ยังไม่มีแคมเปญที่เปิดใช้');
-  return first;
+  const ok = campaigns_().filter(usable_);
+  const find = function (x) { return ok.filter(function (c) { return c.id === String(x); })[0]; };
+  const hit = (id && find(id)) || find(mainCampaignId_()) || ok[0];
+  if (!hit) throw new Error('ยังไม่มีแคมเปญที่เปิดใช้ (หรือ Flex JSON ผิดทุกแคมเปญ)');
+  return hit;
 }
 
 function bump_(sh, row, col, by) {
@@ -379,33 +391,34 @@ function adminStats_(p) {
 
 function campaignList_(p) {
   requireAdmin_(p);
+  const main = mainCampaignId_();
   return {
-    ok: true,
+    ok: true, main: main,
     data: campaigns_().map(function (c) {
       return { id: c.id, name: c.name, altText: c.altText, active: c.active, joined: c.joined, shares: c.shares,
-        note: c.note, json: c.json, link: 'https://liff.line.me/' + LIFF_ID + '?c=' + c.id,
+        note: c.note, json: c.json, link: campaignLink_(c.id), status: c.status, main: c.id === main,
         updated: c.updated instanceof Date ? Utilities.formatDate(c.updated, TZ, 'd/M/yyyy HH:mm') : '' };
     }),
   };
 }
 
-function cleanJson_(json) {
-  let obj;
-  try { obj = JSON.parse(String(json || '')); } catch (e) { throw new Error('Flex JSON ไม่ถูกต้อง: ' + e.message); }
-  if (obj.type === 'flex' && obj.contents) obj = obj.contents;
-  if (obj.type !== 'bubble' && obj.type !== 'carousel') throw new Error('JSON ต้องเป็น bubble หรือ carousel');
-  const s = JSON.stringify(obj);
-  if (s.length > 100000) throw new Error('Flex ใหญ่เกินไป');
-  return s;
+function campaignLink_(id) { return 'https://liff.line.me/' + LIFF_ID + '?c=' + encodeURIComponent(id); }
+
+// เขียน JSON ลงช่อง (ยาวเกินแบ่งหลายช่อง ขึ้นต้นด้วย ~ กัน Sheet แปลงเป็นสูตร)
+function writeJson_(sh, row, json) {
+  const parts = [];
+  for (let i = 0; i < json.length; i += CHUNK) parts.push(P + json.slice(i, i + CHUNK));
+  const width = sh.getLastColumn();
+  if (width >= C.JSON) sh.getRange(row, C.JSON, 1, width - C.JSON + 1).clearContent();
+  sh.getRange(row, C.JSON, 1, parts.length).setValues([parts]);
 }
 
 function campaignSave_(p) {
   requireAdmin_(p);
   const name = String(p.name || '').trim().slice(0, 100);
   if (!name) throw new Error('กรุณาใส่ชื่อแคมเปญ');
-  const json = cleanJson_(p.json);
-  const parts = [];
-  for (let i = 0; i < json.length; i += CHUNK) parts.push(P + json.slice(i, i + CHUNK));
+  const check = validateFlex_(String(p.json || ''));
+  if (!check.ok) throw new Error(check.msg);
   return withLock_(function () {
     const sh = tab_(T_CAMPAIGNS);
     const now = new Date();
@@ -415,16 +428,24 @@ function campaignSave_(p) {
     if (!row) {
       do { id = 'c' + rand_(5); } while (findRow_(sh, C.ID, id));
       row = sh.getLastRow() + 1;
-      sh.getRange(row, C.ID, 1, C.NOTE).setValues([[id, txt_(name), txt_(p.altText || ''), !!p.active, 0, 0, now, now, txt_(p.note || '')]]);
+      sh.getRange(row, C.ID, 1, C.NOTE).setValues([[id, txt_(name), txt_(p.altText || ''), !!p.active,
+        check.msg, campaignLink_(id), 0, 0, now, now, txt_(p.note || '')]]);
     } else {
-      sh.getRange(row, C.NAME, 1, 3).setValues([[txt_(name), txt_(p.altText || ''), !!p.active]]);
+      sh.getRange(row, C.NAME, 1, 5).setValues([[txt_(name), txt_(p.altText || ''), !!p.active, check.msg, campaignLink_(id)]]);
       sh.getRange(row, C.UPDATED, 1, 2).setValues([[now, txt_(p.note || '')]]);
     }
-    const width = sh.getLastColumn();
-    if (width >= C.JSON) sh.getRange(row, C.JSON, 1, width - C.JSON + 1).clearContent();
-    sh.getRange(row, C.JSON, 1, parts.length).setValues([parts]);
+    writeJson_(sh, row, check.json);
+    tidyCampaignRow_(sh, row);
     return { ok: true, id: id };
   });
+}
+
+function setMain_(p) {
+  requireAdmin_(p);
+  const c = campaigns_().filter(function (x) { return x.id === String(p.id); })[0];
+  if (!c) throw new Error('ไม่พบแคมเปญ');
+  settingsTab_().getRange('B2').setValue(c.id);
+  return { ok: true };
 }
 
 function campaignDelete_(p) {
@@ -453,8 +474,8 @@ function setup() {
   if (!campaigns_().length) {
     const sh = tab_(T_CAMPAIGNS);
     const now = new Date();
-    sh.getRange(2, 1, 1, C.JSON).setValues([['c1', 'แคมเปญตัวอย่าง', '{{name}} แชร์สิ่งนี้ให้คุณ 👀', true, 0, 0, now, now,
-      'ตัวอย่าง — แก้รูป ข้อความ ลิงก์ ได้ในหน้าแอดมิน', P + JSON.stringify(sampleFlex_())]]);
+    sh.getRange(2, 1, 1, C.JSON).setValues([['c1', 'แคมเปญตัวอย่าง', '{{name}} แชร์สิ่งนี้ให้คุณ 👀', true, '✅ พร้อมใช้',
+      campaignLink_('c1'), 0, 0, now, now, 'ตัวอย่าง — แก้รูป ข้อความ ลิงก์ ได้ในหน้าแอดมิน', P + JSON.stringify(sampleFlex_())]]);
   }
   secret_();
   const props = PropertiesService.getScriptProperties();
@@ -598,4 +619,187 @@ function tidyRow_(sh, row) {
 function tidyImageRows() {
   const sh = tab_(T_MEMBERS);
   for (let r = 2; r <= sh.getLastRow(); r++) tidyRow_(sh, r);
+}
+
+// ---------- แคมเปญจากชีต: วาง JSON จาก Flex Simulator ในแท็บ campaigns → ระบบตรวจ/เติมให้เอง ----------
+// ติดตั้งครั้งเดียว: เลือก setupCampaignTools > เรียกใช้ (ย้ายคอลัมน์เดิม + สร้างแท็บ "ตั้งค่า" + ตัวตรวจอัตโนมัติ)
+
+function settingsTab_() {
+  const ss = ss_();
+  let sh = ss.getSheetByName(T_SETTINGS);
+  if (sh) return sh;
+  sh = ss.insertSheet(T_SETTINGS, 0);
+  const camp = "'" + T_CAMPAIGNS + "'";
+  sh.getRange('A1:B1').setValues([['ตั้งค่า', 'ค่า']]).setFontWeight('bold').setBackground('#e8f5e9');
+  sh.getRange('A2:A5').setValues([['⭐ แคมเปญหลัก (ลิงก์เปล่าจะโชว์แคมเปญนี้) — เลือก id'], ['ชื่อแคมเปญหลัก'], ['สถานะ'], ['ลิงก์ส่งให้ลูกค้า']]);
+  sh.getRange('B2').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInRange(ss.getSheetByName(T_CAMPAIGNS).getRange('A2:A'), true).setAllowInvalid(false).build())
+    .setBackground('#fff8e1').setFontWeight('bold');
+  sh.getRange('B3').setFormula('=IFERROR(VLOOKUP(B2,' + camp + '!$A:$B,2,FALSE),"⚠️ ไม่พบ id นี้")');
+  sh.getRange('B4').setFormula('=IFERROR(VLOOKUP(B2,' + camp + '!$A:$E,5,FALSE),"")');
+  sh.getRange('B5').setValue('https://liff.line.me/' + LIFF_ID);
+  sh.getRange('A7').setValue('วิธีสร้างแคมเปญ').setFontWeight('bold');
+  sh.getRange('A8:A15').setValues([
+    ['1) ออกแบบการ์ดใน developers.line.biz/flex-simulator > กด View as JSON > Copy'],
+    ['2) แท็บ campaigns: แถวว่าง > ใส่ชื่อในช่อง B (ไม่ใส่ก็ได้) > ดับเบิลคลิกช่อง L > Ctrl+V > Enter'],
+    ['   ⚠️ ต้องดับเบิลคลิกก่อนวาง (ถ้าเผลอวางแตกหลายแถว ระบบจะพยายามรวมให้เอง)'],
+    ['3) รอ 1–2 วินาที: ระบบเติม id, ติ๊กเปิดใช้, สถานะ ✅/❌ และลิงก์แคมเปญ ให้เอง'],
+    ['4) ลิงก์เปล่าจะโชว์แคมเปญไหน → เลือก id ในช่อง B2 ด้านบน (ลิงก์ของแต่ละแคมเปญอยู่คอลัมน์ F)'],
+    ['5) ตัวแปร: {{name}} ชื่อคนแชร์ · {{picture}} รูปคนแชร์ (ช่อง url ของรูป) · {{shareUrl}} ลิงก์แชร์ต่อ (ใส่ในปุ่ม ไม่ใส่ระบบเติมปุ่มให้)'],
+    ['   {{members}} คนร่วมทั้งหมด · {{invited}} คนที่ผู้แชร์ชวนได้ · {{campaign}} ชื่อแคมเปญ · {{date}} วันที่'],
+    ['6) ปิดแคมเปญ: เอาติ๊ก "เปิดใช้" ออก → คนที่กดการ์ดเก่าจะถูกพาไปแคมเปญหลักแทน (สายแชร์ไม่ขาด)'],
+  ]);
+  sh.setColumnWidth(1, 430);
+  sh.setColumnWidth(2, 360);
+  sh.setFrozenRows(1);
+  return sh;
+}
+
+// ย้ายแคมเปญจากโครงสร้างเดิม (E=คนเข้าร่วม, J=JSON) → โครงสร้างใหม่ (E=สถานะ, F=ลิงก์, L=JSON)
+function migrateCampaigns_() {
+  const sh = tab_(T_CAMPAIGNS);
+  if (String(sh.getRange(1, 5).getValue()) !== 'คนเข้าร่วม') return 0;
+  const last = sh.getLastRow(), width = sh.getLastColumn();
+  const rows = last >= 2 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
+  const out = rows.filter(function (r) { return String(r[0]).trim(); }).map(function (r) {
+    const chunks = [];
+    for (let c = 9; c < r.length; c++) { if (r[c] === '' || r[c] == null) break; chunks.push(String(r[c])); }
+    return [txt_(r[0]), txt_(r[1]), txt_(r[2]), r[3], '', '', r[4], r[5], r[6], r[7], txt_(r[8])].concat(chunks);
+  });
+  const w = out.reduce(function (m, r) { return Math.max(m, r.length); }, C.JSON);
+  out.forEach(function (r) { while (r.length < w) r.push(''); });
+  sh.clear();
+  sh.getRange(1, 1, 1, C_HEAD.length).setValues([C_HEAD]);
+  if (out.length) sh.getRange(2, 1, out.length, w).setValues(out);
+  return out.length;
+}
+
+function tidyCampaignRow_(sh, row) {
+  sh.getRange(row, 1, 1, Math.max(sh.getLastColumn(), C.JSON))
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP).setVerticalAlignment('middle');
+  sh.setRowHeightsForced(row, 1, 30);
+}
+
+// ตรวจ Flex JSON → { ok, msg, json(ย่อแล้ว) }
+function validateFlex_(json) {
+  let obj;
+  try { obj = JSON.parse(String(json || '').trim()); }
+  catch (e) { return { ok: false, msg: '❌ JSON ผิดรูปแบบ (' + String(e.message).slice(0, 90) + ') — คัดลอกจาก View as JSON ใหม่ให้ครบ' }; }
+  if (obj && obj.type === 'flex' && obj.contents) obj = obj.contents;
+  if (!obj || (obj.type !== 'bubble' && obj.type !== 'carousel')) {
+    return { ok: false, msg: '❌ ต้องเป็น bubble หรือ carousel (คัดลอกจากปุ่ม View as JSON ใน Flex Simulator)' };
+  }
+  if (obj.type === 'carousel' && (!Array.isArray(obj.contents) || obj.contents.length < 1 || obj.contents.length > 12)) {
+    return { ok: false, msg: '❌ carousel ต้องมี 1–12 การ์ด' };
+  }
+  const min = JSON.stringify(obj);
+  if (/"url"\s*:\s*"http:\/\//.test(min)) return { ok: false, msg: '❌ ลิงก์รูปต้องขึ้นต้นด้วย https://' };
+  try {
+    render_({ id: 'test', name: 'test', altText: '', joined: 0, json: min },
+      { name: 'ทดสอบ', picture: DEFAULT_AVATAR, ref: 'test', invited: 0, shares: 0 });
+  } catch (e) { return { ok: false, msg: '❌ ใส่ตัวแปร {{...}} แล้ว JSON พัง: ' + e.message }; }
+  const kb = Utilities.newBlob(min).getBytes().length / 1024;
+  if (kb > (obj.type === 'bubble' ? 30 : 50)) {
+    return { ok: true, json: min, msg: '⚠️ ใหญ่ ' + kb.toFixed(1) + ' KB — LINE อาจไม่รับ (bubble ≤ 30 KB, carousel ≤ 50 KB)' };
+  }
+  const notes = [];
+  if (obj.type === 'carousel') notes.push(obj.contents.length + ' การ์ด');
+  if (min.indexOf('{{shareUrl}}') < 0) notes.push('ไม่มี {{shareUrl}} → ระบบเติมปุ่มแชร์ให้');
+  return { ok: true, json: min, msg: '✅ พร้อมใช้' + (notes.length ? ' · ' + notes.join(' · ') : '') };
+}
+
+// ตรวจ/เติมแถวแคมเปญ 1 แถว: id, ชื่อ, ติ๊กเปิดใช้, วันที่, สถานะ, ลิงก์
+function checkCampaignRow_(sh, row) {
+  const width = Math.max(sh.getLastColumn(), C.JSON);
+  const v = sh.getRange(row, 1, 1, width).getValues()[0];
+  let json = '';
+  for (let c = C.JSON - 1; c < v.length; c++) { if (v[c] === '' || v[c] == null) break; json += un_(v[c]); }
+  let id = String(v[C.ID - 1]).trim();
+  const name = String(v[C.NAME - 1]).trim();
+  if (!id && !name && !json) { sh.getRange(row, C.STATUS, 1, 2).clearContent(); return; }
+  const ids = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 1).getValues().map(function (r) { return String(r[0]).trim(); });
+  if (!id) {
+    do { id = 'c' + rand_(5); } while (ids.indexOf(id) > -1);
+    sh.getRange(row, C.ID).setValue(id);
+  }
+  let status = '';
+  if (!/^[A-Za-z0-9_-]{1,30}$/.test(id)) status = '❌ id ใช้ได้เฉพาะ a-z A-Z 0-9 _ - (ไม่เกิน 30 ตัว)';
+  else if (ids.filter(function (x) { return x === id; }).length > 1) status = '❌ id ซ้ำกับแถวอื่น';
+  if (!status) status = json ? validateFlex_(json).msg : '⏳ ยังไม่มี Flex JSON — ดับเบิลคลิกช่อง L แล้ววาง';
+  const now = new Date();
+  if (!name) sh.getRange(row, C.NAME).setValue(id);
+  if (v[C.ACTIVE - 1] === '' && json) sh.getRange(row, C.ACTIVE).setValue(true);
+  if (v[C.JOINED - 1] === '') sh.getRange(row, C.JOINED, 1, 2).setValues([[0, 0]]);
+  if (!v[C.CREATED - 1]) sh.getRange(row, C.CREATED).setValue(now);
+  sh.getRange(row, C.UPDATED).setValue(now);
+  sh.getRange(row, C.STATUS, 1, 2).setValues([[status, campaignLink_(id)]]);
+  tidyCampaignRow_(sh, row);
+}
+
+// เผลอวาง JSON หลายบรรทัดแบบไม่ดับเบิลคลิก → ชีตแตกเป็นหลายแถว → รวมกลับเป็นช่องเดียวให้
+function fixSplitPaste_(sh, range) {
+  const r0 = range.getRow(), n = range.getNumRows(), col = range.getColumn();
+  if (r0 < 2 || n < 2 || range.getNumColumns() !== 1) return false;
+  const lines = range.getValues().map(function (v) { return String(v[0]); });
+  let obj = null;
+  try { obj = JSON.parse(lines.join('\n')); } catch (e) {}
+  if (!obj) {
+    if (lines[0].trim() === '{') {
+      sh.getRange(r0, C.STATUS).setValue('❌ JSON แตกลงหลายแถว — กด Ctrl+Z แล้วดับเบิลคลิกช่อง L ก่อนวาง');
+      return true;
+    }
+    return false;
+  }
+  const others = sh.getRange(r0 + 1, 1, n - 1, C.NOTE).getValues();
+  const clean = others.every(function (r) {
+    return r.every(function (x, i) { return i === col - 1 || x === '' || x === false; });
+  });
+  if (!clean) {
+    sh.getRange(r0, C.STATUS).setValue('❌ วาง JSON ทับแถวแคมเปญอื่น — กด Ctrl+Z แล้วดับเบิลคลิกช่อง L ก่อนวาง');
+    return true;
+  }
+  range.clearContent();
+  writeJson_(sh, r0, JSON.stringify(obj));
+  sh.deleteRows(r0 + 1, n - 1);
+  checkCampaignRow_(sh, r0);
+  return true;
+}
+
+// ตัวตรวจอัตโนมัติ (ตัวตั้งเวลาแบบ "เมื่อแก้ไขชีต")
+function onSheetEdit(e) {
+  if (!e || !e.range) return;
+  const sh = e.range.getSheet();
+  if (sh.getName() !== T_CAMPAIGNS) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    if (fixSplitPaste_(sh, e.range)) return;
+    const r0 = Math.max(2, e.range.getRow()), r1 = Math.min(e.range.getLastRow(), sh.getLastRow());
+    for (let r = r0; r <= r1 && r < r0 + 50; r++) checkCampaignRow_(sh, r);
+  } catch (err) {
+    console.error(err);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function setupCampaignTools() {
+  const moved = withLock_(migrateCampaigns_);
+  const sh = tab_(T_CAMPAIGNS);
+  sh.getRange(1, 1, 1, C_HEAD.length).setValues([C_HEAD]).setFontWeight('bold').setBackground('#e8f5e9');
+  sh.setFrozenRows(1);
+  sh.getRange(2, C.ACTIVE, sh.getMaxRows() - 1, 1)
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+  [80, 170, 220, 64, 320, 340, 80, 70, 110, 110, 160, 420].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  const st = settingsTab_();
+  for (let r = 2; r <= sh.getLastRow(); r++) checkCampaignRow_(sh, r);
+  if (!mainCampaignId_()) {
+    const first = campaigns_().filter(usable_)[0];
+    if (first) st.getRange('B2').setValue(first.id);
+  }
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'onSheetEdit') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onSheetEdit').forSpreadsheet(SHEET_ID).onEdit().create();
+  Logger.log('เสร็จ — ย้ายแคมเปญเดิม ' + moved + ' แถว · แคมเปญหลัก: ' + mainCampaignId_() + ' · ตัวตรวจอัตโนมัติพร้อม');
 }

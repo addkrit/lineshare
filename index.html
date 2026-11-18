@@ -183,7 +183,7 @@
 </div>
 
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-<script src="config.js"></script>
+<script src="config.js?v=2"></script>
 <script>
 const CFG = window.LS_CONFIG || {};
 const $ = (s) => document.querySelector(s);
@@ -340,11 +340,14 @@ async function loadCamps() {
   const r = await api('campaigns', { session: S.session });
   S.camps = r.data;
   $('#campList').innerHTML = S.camps.map((c, i) =>
-    '<div class="camp"><div style="display:flex;justify-content:space-between;gap:8px"><b>' + esc(c.name) + '</b>' +
+    '<div class="camp"><div style="display:flex;justify-content:space-between;gap:8px"><b>' + (c.main ? '⭐ ' : '') + esc(c.name) + '</b>' +
     '<span class="chip ' + (c.active ? '' : 'off') + '">' + (c.active ? 'เปิดใช้' : 'ปิด') + '</span></div>' +
     '<div class="muted">id ' + esc(c.id) + ' · ร่วม ' + c.joined + ' คน · แชร์ ' + c.shares + ' ครั้ง' + (c.updated ? ' · แก้ ' + esc(c.updated) : '') + '</div>' +
+    (c.status ? '<div class="muted" style="color:' + (c.status.indexOf('❌') === 0 ? 'var(--danger)' : 'var(--green-d)') + '">' + esc(c.status) + '</div>' : '') +
+    (c.main ? '<div class="muted">⭐ แคมเปญหลัก — ลิงก์เปล่าจะโชว์แคมเปญนี้</div>' : '') +
     '<div class="btns"><button data-act="edit" data-i="' + i + '">แก้ไข</button><button data-act="copy" data-i="' + i + '">คัดลอกลิงก์</button>' +
-    '<button data-act="test" data-i="' + i + '">ทดสอบส่ง</button></div></div>').join('') || '<p class="muted">ยังไม่มีแคมเปญ</p>';
+    '<button data-act="test" data-i="' + i + '">ทดสอบส่ง</button>' +
+    (c.main ? '' : '<button data-act="main" data-i="' + i + '">⭐ ตั้งเป็นหลัก</button>') + '</div></div>').join('') || '<p class="muted">ยังไม่มีแคมเปญ</p>';
 }
 function openEditor(c) {
   S.editId = c ? c.id : '';
@@ -417,6 +420,10 @@ $('#campList').onclick = (ev) => {
   if (b.dataset.act === 'edit') openEditor(c);
   if (b.dataset.act === 'copy') copyText(c.link, 'คัดลอกลิงก์แคมเปญแล้ว');
   if (b.dataset.act === 'test') testSend(c.json, c.altText, c.id, c.name);
+  if (b.dataset.act === 'main') {
+    api('setMain', { session: S.session, id: c.id }).then(() => { toast('ตั้ง "' + c.name + '" เป็นแคมเปญหลักแล้ว'); return loadCamps(); })
+      .catch((e) => toast(e.message));
+  }
 };
 $('#btnNewCamp').onclick = () => openEditor(null);
 $('#btnCancel').onclick = () => { $('#editor').hidden = true; };
