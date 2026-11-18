@@ -544,6 +544,7 @@ function processImages() {
   if (cache.get('img_running')) return;
   cache.put('img_running', '1', 300);
   try {
+    try { sweepCampaigns_(); } catch (e) { console.error(e); }
     const sh = tab_(T_MEMBERS);
     if (sh.getRange(1, IMG_COL).getValue() !== 'รูป') {
       sh.getRange(1, IMG_COL, 1, 2).setValues([['รูป', 'ไฟล์รูป (Drive)']]).setFontWeight('bold').setBackground('#e8f5e9');
@@ -729,11 +730,42 @@ function checkCampaignRow_(sh, row) {
   const now = new Date();
   if (!name) sh.getRange(row, C.NAME).setValue(id);
   if (v[C.ACTIVE - 1] === '' && json) sh.getRange(row, C.ACTIVE).setValue(true);
+  if (json || v[C.ACTIVE - 1] !== '') {
+    sh.getRange(row, C.ACTIVE).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+  }
   if (v[C.JOINED - 1] === '') sh.getRange(row, C.JOINED, 1, 2).setValues([[0, 0]]);
   if (!v[C.CREATED - 1]) sh.getRange(row, C.CREATED).setValue(now);
   sh.getRange(row, C.UPDATED).setValue(now);
   sh.getRange(row, C.STATUS, 1, 2).setValues([[status, campaignLink_(id)]]);
+  sh.getRange(row, C.STATUS).setNote(campaignSig_(json, id));
   tidyCampaignRow_(sh, row);
+}
+
+// ลายเซ็นของแถว (id + JSON) เก็บในโน้ตของช่องสถานะ — ใช้ดูว่าแถวไหนเปลี่ยนแต่ยังไม่ได้ตรวจ
+function campaignSig_(json, id) {
+  return 'sig:' + Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, String(id) + '|' + json)).slice(0, 16);
+}
+
+// ตัวกวาดสำรองทุก 1 นาที (เรียกจาก processImages): ตรวจแถวที่ตัวตรวจอัตโนมัติพลาด (เช่น แก้หลายช่องเร็วๆ)
+function sweepCampaigns_() {
+  const sh = ss_().getSheetByName(T_CAMPAIGNS);
+  if (!sh || sh.getLastRow() < 2 || String(sh.getRange(1, C.STATUS).getValue()).indexOf('สถานะ') !== 0) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const last = sh.getLastRow(), width = Math.max(sh.getLastColumn(), C.JSON);
+    const vals = sh.getRange(2, 1, last - 1, width).getValues();
+    const notes = sh.getRange(2, C.STATUS, last - 1, 1).getNotes();
+    vals.forEach(function (v, i) {
+      let json = '';
+      for (let c = C.JSON - 1; c < v.length; c++) { if (v[c] === '' || v[c] == null) break; json += un_(v[c]); }
+      const id = String(v[C.ID - 1]).trim();
+      if (!id && !String(v[C.NAME - 1]).trim() && !json) return;
+      if (notes[i][0] !== campaignSig_(json, id)) checkCampaignRow_(sh, i + 2);
+    });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // เผลอวาง JSON หลายบรรทัดแบบไม่ดับเบิลคลิก → ชีตแตกเป็นหลายแถว → รวมกลับเป็นช่องเดียวให้
@@ -788,11 +820,19 @@ function setupCampaignTools() {
   const sh = tab_(T_CAMPAIGNS);
   sh.getRange(1, 1, 1, C_HEAD.length).setValues([C_HEAD]).setFontWeight('bold').setBackground('#e8f5e9');
   sh.setFrozenRows(1);
-  sh.getRange(2, C.ACTIVE, sh.getMaxRows() - 1, 1)
-    .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+  // แถวข้อมูลจริง (ดูจาก id / ชื่อ / JSON) — ช่องติ๊กใส่เฉพาะแถวที่มีข้อมูล ไม่งั้นชีตนับว่ามีข้อมูลถึงแถวสุดท้าย
+  const max = sh.getMaxRows();
+  const cols = [C.ID, C.NAME, C.JSON].map(function (c) { return sh.getRange(1, c, max, 1).getValues(); });
+  let lastData = 1;
+  for (let r = max; r >= 2 && lastData === 1; r--) {
+    if (cols.some(function (v) { return String(v[r - 1][0]).trim(); })) lastData = r;
+  }
+  if (max > lastData) sh.getRange(lastData + 1, C.ACTIVE, max - lastData, 1).clearDataValidations().clearContent();
+  sh.getRange(2, C.JOINED, max - 1, 2).setNumberFormat('0');
+  sh.getRange(2, C.CREATED, max - 1, 2).setNumberFormat('d/m/yyyy HH:mm');
   [80, 170, 220, 64, 320, 340, 80, 70, 110, 110, 160, 420].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   const st = settingsTab_();
-  for (let r = 2; r <= sh.getLastRow(); r++) checkCampaignRow_(sh, r);
+  for (let r = 2; r <= lastData; r++) checkCampaignRow_(sh, r);
   if (!mainCampaignId_()) {
     const first = campaigns_().filter(usable_)[0];
     if (first) st.getRange('B2').setValue(first.id);
