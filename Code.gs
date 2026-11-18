@@ -12,8 +12,8 @@
  */
 
 // ===== ตั้งค่า =====
-const LIFF_ID = '';    // LIFF ID จาก LINE Developers (เช่น 2012345678-AbCdEfGh)
-const SHEET_ID = '';   // ID ของ Google Sheet ที่เก็บข้อมูล (ตัวอักษรยาวๆ ใน URL ของ Sheet)
+const LIFF_ID = '2012679146-P193zTHk';    // LIFF "CeeShop Share" (Provider: CeeShop Share)
+const SHEET_ID = '1yTFPV0wpK8iqV8P6kKU-b1QrqPw1baX9pmKprjhzPww';   // Google Sheet "LINE Share DB" (goimage55)
 const PAGE_URL = 'https://addkrit.github.io/lineshare/';  // ที่อยู่หน้าเว็บ (ใช้หารูปสำรอง)
 
 // ===== ค่าคงที่ (ไม่ต้องแก้) =====
