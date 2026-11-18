@@ -503,6 +503,7 @@ function installImageTrigger() {
   });
   ScriptApp.newTrigger('processImages').timeBased().everyMinutes(1).create();
   processImages();
+  tidyImageRows();
   Logger.log('ตั้งเวลาแปลงรูปทุก 1 นาทีแล้ว — ไฟล์อยู่ใน Drive โฟลเดอร์ "' + IMG_FOLDER + '"');
 }
 
@@ -585,5 +586,16 @@ function convertImage_(sh, row, url, uid, name) {
   }
   sh.getRange(row, IMG_COL).setValue(img).setNote(url);
   sh.getRange(row, FILE_COL).setFormula('=HYPERLINK("https://drive.google.com/file/d/' + file.getId() + '/view","เปิดไฟล์รูป")');
-  sh.setRowHeight(row, 60);
+  tidyRow_(sh, row);
+}
+
+// แถวเตี้ยเท่ากัน 60px (สเตตัสหลายบรรทัดไม่ดันแถวให้สูง) — เห็นรูปพอดีช่อง
+function tidyRow_(sh, row) {
+  sh.getRange(row, 1, 1, FILE_COL).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP).setVerticalAlignment('middle');
+  sh.setRowHeightsForced(row, 1, 60);
+}
+
+function tidyImageRows() {
+  const sh = tab_(T_MEMBERS);
+  for (let r = 2; r <= sh.getLastRow(); r++) tidyRow_(sh, r);
 }
