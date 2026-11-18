@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LINE Share</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f5f4; --card: #ffffff; --text: #1d2420; --muted: #6b7570; --line: #e3e8e5;
+    --green: #06c755; --green-d: #05a948; --soft: #e9f9ef; --danger: #d93a3a; --shadow: 0 2px 10px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121614; --card: #1c211e; --text: #e8ece9; --muted: #9aa49f; --line: #2c332f; --soft: #173323; --shadow: none; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font-family: 'Noto Sans Thai', system-ui, sans-serif; font-size: 15px; line-height: 1.5; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 16px 16px 40px; }
+  [hidden] { display: none !important; }
+  .card { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 14px; border: 1px solid var(--line); }
+  h1 { font-size: 21px; margin: 4px 0 6px; } h2 { font-size: 17px; margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; border: 0; border-radius: 12px;
+    padding: 13px 14px; font: inherit; font-weight: 600; cursor: pointer; margin-top: 10px; text-decoration: none; }
+  .btn.primary { background: var(--green); color: #fff; font-size: 17px; }
+  .btn.primary:active { background: var(--green-d); }
+  .btn.ghost { background: var(--soft); color: var(--green-d); }
+  .btn.plain { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  .btn.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn:disabled { opacity: .55; }
+  .row { display: flex; gap: 10px; } .row > * { flex: 1; }
+  .me { display: flex; align-items: center; gap: 12px; }
+  .me img { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; background: var(--line); }
+  .chip { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 99px; background: var(--soft); color: var(--green-d); margin: 2px 4px 0 0; }
+  .hero { width: 100%; border-radius: 12px; display: block; background: var(--line); max-height: 320px; object-fit: cover; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .stat { background: var(--soft); border-radius: 12px; padding: 10px 6px; text-align: center; }
+  .stat b { display: block; font-size: 20px; color: var(--green-d); } .stat span { font-size: 12px; color: var(--muted); }
+  .spin { width: 38px; height: 38px; border: 4px solid var(--line); border-top-color: var(--green); border-radius: 50%; animation: s 1s linear infinite; margin: 60px auto 14px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .center { text-align: center; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #222; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: 90%; z-index: 9; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  textarea { min-height: 220px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; font-weight: 600; }
+  .tabs button.on { background: var(--green); color: #fff; border-color: var(--green); }
+  .list .item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .list .item:last-child { border-bottom: 0; }
+  .list img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--line); }
+  .list .grow { flex: 1; min-width: 0; } .list .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .num { font-weight: 700; color: var(--green-d); }
+  .camp { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+  .camp .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .camp .btns button { flex: 1; min-width: 90px; padding: 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+  .off { background: #eee; color: #888; }
+  code { background: var(--soft); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+  a { color: var(--green-d); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- กำลังโหลด -->
+  <section id="vLoading" class="view center">
+    <div class="spin"></div><div class="muted" id="loadMsg">กำลังโหลด…</div>
+  </section>
+
+  <!-- ยังไม่ล็อกอิน (เปิดนอกแอป LINE) -->
+  <section id="vLanding" class="view" hidden>
+    <div class="card center">
+      <div style="font-size:46px">💚</div>
+      <h1>ร่วมแชร์ต่อกับเพื่อน</h1>
+      <p class="muted" id="consentText"></p>
+      <button class="btn primary" id="btnLogin">เข้าสู่ระบบด้วย LINE</button>
+      <p class="muted"><a href="privacy.html">นโยบายความเป็นส่วนตัว</a></p>
+    </div>
+  </section>
+
+  <!-- หน้าหลัก -->
+  <section id="vMain" class="view" hidden>
+    <div class="card">
+      <div class="me">
+        <img id="meImg" alt="">
+        <div style="min-width:0">
+          <div class="muted">สวัสดีครับ</div>
+          <div style="font-weight:700;font-size:18px" id="meName"></div>
+          <div id="meChips"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <img class="hero" id="heroImg" alt="" hidden>
+      <h2 style="margin-top:12px" id="campName"></h2>
+      <div class="muted" id="campAlt"></div>
+      <div class="stats">
+        <div class="stat"><b id="stInvited">0</b><span>คุณชวนสำเร็จ</span></div>
+        <div class="stat"><b id="stShares">0</b><span>คุณแชร์ไป</span></div>
+        <div class="stat"><b id="stJoined">0</b><span>ร่วมทั้งหมด</span></div>
+      </div>
+      <button class="btn primary" id="btnShare">📤 แชร์ต่อให้เพื่อน</button>
+      <button class="btn ghost" id="btnHere" hidden>💬 ส่งในห้องแชทนี้</button>
+      <button class="btn ghost" id="btnFriend" hidden>➕ เพิ่มเพื่อน LINE OA</button>
+      <button class="btn plain" id="btnCopy">🔗 คัดลอกลิงก์ของฉัน</button>
+      <p class="muted" style="margin-bottom:0">ทุกคนที่เปิดจากการ์ดหรือลิงก์ของคุณ จะนับเป็นคนที่คุณชวน และเขาก็แชร์ต่อได้เรื่อยๆ</p>
+    </div>
+    <button class="btn plain" id="btnAdmin" hidden>⚙️ หน้าแอดมิน</button>
+    <p class="muted center"><a href="privacy.html">นโยบายความเป็นส่วนตัว</a></p>
+  </section>
+
+  <!-- แอดมิน: ใส่รหัส -->
+  <section id="vClaim" class="view" hidden>
+    <div class="card">
+      <h2>เข้าหน้าแอดมิน</h2>
+      <p class="muted">ใส่รหัสแอดมิน (ดูได้ใน Apps Script: เลือกฟังก์ชัน <code>showAdminCode</code> แล้วกด Run)</p>
+      <input type="text" id="claimCode" inputmode="numeric" placeholder="รหัส 6 หลัก">
+      <button class="btn primary" id="btnClaim">ยืนยัน</button>
+    </div>
+  </section>
+
+  <!-- แอดมิน -->
+  <section id="vAdmin" class="view" hidden>
+    <div class="tabs">
+      <button id="tabStats" class="on">ภาพรวม</button>
+      <button id="tabCamps">แคมเปญ</button>
+    </div>
+
+    <div id="paneStats">
+      <div class="card">
+        <div class="stats">
+          <div class="stat"><b id="aMembers">0</b><span>สมาชิก</span></div>
+          <div class="stat"><b id="aToday">0</b><span>ใหม่วันนี้</span></div>
+          <div class="stat"><b id="aShares">0</b><span>แชร์ทั้งหมด</span></div>
+          <div class="stat"><b id="aLevel">0</b><span>สายแชร์ลึกสุด (ชั้น)</span></div>
+          <div class="stat"><b id="aFriends">0</b><span>เป็นเพื่อน OA</span></div>
+          <div class="stat"><b id="aRefresh" style="cursor:pointer">↻</b><span>รีเฟรช</span></div>
+        </div>
+      </div>
+      <div class="card"><h2>🏆 ชวนเพื่อนได้มากที่สุด</h2><div class="list" id="aTop"></div></div>
+      <div class="card"><h2>🆕 สมาชิกล่าสุด</h2><div class="list" id="aLatest"></div></div>
+      <p class="muted center">ข้อมูลทั้งหมดอยู่ใน Google Sheet (แท็บ members / events)</p>
+    </div>
+
+    <div id="paneCamps" hidden>
+      <div id="campList"></div>
+      <button class="btn primary" id="btnNewCamp">＋ สร้างแคมเปญใหม่</button>
+
+      <div class="card" id="editor" hidden style="margin-top:14px">
+        <h2 id="edTitle">แก้ไขแคมเปญ</h2>
+        <label>ชื่อแคมเปญ</label><input type="text" id="edName" maxlength="100">
+        <label>ข้อความแจ้งเตือน (altText — โชว์ในรายการแชท)</label><input type="text" id="edAlt" maxlength="400" placeholder="{{name}} แชร์สิ่งนี้ให้คุณ">
+        <label>หมายเหตุ</label><input type="text" id="edNote">
+        <label style="display:flex;align-items:center;gap:8px;color:var(--text)"><input type="checkbox" id="edActive"> เปิดใช้แคมเปญนี้</label>
+        <label>Flex JSON (bubble หรือ carousel — ออกแบบใน <a href="https://developers.line.biz/flex-simulator/" target="_blank">Flex Simulator</a> แล้ววาง)</label>
+        <textarea id="edJson" spellcheck="false"></textarea>
+        <p class="muted">ตัวแปรที่ใช้ได้: <code>{{name}}</code> ชื่อคนแชร์ · <code>{{picture}}</code> รูปคนแชร์ · <code>{{shareUrl}}</code> ลิงก์แชร์ต่อ (ใส่ในปุ่ม) · <code>{{members}}</code> จำนวนคนร่วม · <code>{{invited}}</code> คนที่ผู้แชร์ชวนได้ · <code>{{campaign}}</code> · <code>{{date}}</code><br>ถ้าไม่ใส่ <code>{{shareUrl}}</code> ระบบจะเติมปุ่ม "แชร์ต่อให้เพื่อน" ให้อัตโนมัติ</p>
+        <div class="row">
+          <button class="btn plain" id="btnFmt">จัดรูปแบบ</button>
+          <button class="btn ghost" id="btnTest">ทดสอบส่ง</button>
+        </div>
+        <button class="btn primary" id="btnSave">บันทึก</button>
+        <div class="row">
+          <button class="btn plain" id="btnCancel">ปิด</button>
+          <button class="btn danger" id="btnDel">ลบ</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ผิดพลาด -->
+  <section id="vError" class="view" hidden>
+    <div class="card center">
+      <div style="font-size:40px">⚠️</div>
+      <h2>เกิดข้อผิดพลาด</h2>
+      <p class="muted" id="errMsg"></p>
+      <button class="btn plain" onclick="location.reload()">ลองใหม่</button>
+    </div>
+  </section>
+</div>
+
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="config.js"></script>
+<script>
+const CFG = window.LS_CONFIG || {};
+const $ = (s) => document.querySelector(s);
+const S = { session: '', message: null, shareUrl: '', camp: null, me: null, admin: false, params: null, ctx: {}, isFriend: '', camps: [], editId: '' };
+const SAFE_CTX = ['utou', 'group', 'room', 'square_chat'];
+
+function show(id) { document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== id; }); window.scrollTo(0, 0); }
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 3200);
+}
+function fail(msg) { $('#errMsg').textContent = msg; show('vError'); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function store(fn) { try { return fn(); } catch (e) { return null; } }
+
+// ค่าใน URL (?c=แคมเปญ&r=รหัสคนชวน&src=แหล่งที่มา) — รองรับ liff.state และจำไว้ข้ามการล็อกอิน
+function readParams() {
+  const u = new URLSearchParams(location.search);
+  const st = u.get('liff.state');
+  if (st) {
+    const i = st.indexOf('?');
+    if (i > -1) new URLSearchParams(st.slice(i)).forEach((v, k) => { if (!u.get(k)) u.set(k, v); });
+  }
+  const saved = store(() => JSON.parse(localStorage.getItem('ls_pending') || 'null'));
+  if (saved && Date.now() - saved.t < 3600e3) ['c', 'r', 'src'].forEach((k) => { if (!u.get(k) && saved[k]) u.set(k, saved[k]); });
+  return u;
+}
+function savePending() {
+  const p = S.params || new URLSearchParams();
+  store(() => localStorage.setItem('ls_pending', JSON.stringify({ c: p.get('c') || '', r: p.get('r') || '', src: p.get('src') || '', t: Date.now() })));
+}
+function clearPending() { store(() => localStorage.removeItem('ls_pending')); }
+
+async function api(action, data) {
+  const body = new URLSearchParams({ p: JSON.stringify(Object.assign({ action }, data || {})) });
+  let r;
+  try { r = await fetch(CFG.SCRIPT_URL, { method: 'POST', body }); }
+  catch (e) { throw new Error('ติดต่อเซิร์ฟเวอร์ไม่ได้ — เช็กอินเทอร์เน็ตแล้วลองใหม่'); }
+  const j = await r.json().catch(() => ({ ok: false, error: 'เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ (เช็ก SCRIPT_URL)' }));
+  if (!j.ok) { const e = new Error(j.error || 'เกิดข้อผิดพลาด'); e.code = j.code; throw e; }
+  return j;
+}
+
+function relogin() {
+  savePending();
+  store(() => sessionStorage.setItem('ls_relogin', '1'));
+  liff.logout();
+  liff.login({ redirectUri: location.href });
+}
+function handleErr(e) {
+  const tried = store(() => sessionStorage.getItem('ls_relogin'));
+  if (e.code === 'auth' && !liff.isInClient() && !tried) return relogin();
+  fail(e.message + (e.code === 'auth' && liff.isInClient() ? ' — ปิดหน้านี้แล้วกดลิงก์ใหม่อีกครั้ง' : ''));
+}
+
+async function joinPayload() {
+  const prof = await liff.getProfile().catch(() => ({}));
+  try { const f = await liff.getFriendship(); S.isFriend = f && f.friendFlag ? 'ใช่' : 'ไม่'; } catch (e) { S.isFriend = ''; }
+  S.ctx = liff.getContext() || {};
+  const p = S.params;
+  return {
+    idToken: liff.getIDToken(), c: p.get('c') || '', r: p.get('r') || '', src: p.get('src') || p.get('utm_source') || '',
+    statusMessage: prof.statusMessage || '', name: prof.displayName || '', picture: prof.pictureUrl || '',
+    lang: liff.getLanguage() || '', os: liff.getOS() || '', lineVersion: liff.getLineVersion() || '',
+    contextType: S.ctx.type || '', isFriend: S.isFriend,
+  };
+}
+
+async function doJoin() {
+  $('#loadMsg').textContent = 'กำลังบันทึกข้อมูล…';
+  const j = await api('join', await joinPayload());
+  clearPending();
+  store(() => sessionStorage.removeItem('ls_relogin'));
+  Object.assign(S, { session: j.session, message: j.message, shareUrl: j.shareUrl, camp: j.campaign, me: j.me, admin: j.admin });
+  return j;
+}
+
+// ---------- หน้าหลัก ----------
+function firstImage(node, skip) {
+  if (!node || typeof node !== 'object') return '';
+  if (node.type === 'image' && node.url && node.url !== skip) return node.url;
+  for (const k of ['hero', 'body', 'footer', 'header', 'contents']) {
+    const v = node[k];
+    const list = Array.isArray(v) ? v : (v ? [v] : []);
+    for (const x of list) { const u = firstImage(x, skip); if (u) return u; }
+  }
+  return '';
+}
+function updateStats() {
+  $('#stInvited').textContent = S.me.invited || 0;
+  $('#stShares').textContent = S.me.shares || 0;
+  $('#stJoined').textContent = S.camp.joined || 0;
+}
+function renderMain(j) {
+  $('#meImg').src = S.me.picture || 'user.png';
+  $('#meName').textContent = S.me.name || 'เพื่อน';
+  $('#meChips').innerHTML = '<span class="chip">ชั้นที่ ' + esc(S.me.level) + '</span>' +
+    (S.me.by ? '<span class="chip">ชวนโดย ' + esc(S.me.by) + '</span>' : '') +
+    (j.isNew ? '<span class="chip">สมาชิกใหม่ 🎉</span>' : '');
+  const img = firstImage(S.message.contents, S.me.picture);
+  if (img && img.indexOf('{{') < 0) { $('#heroImg').src = img; $('#heroImg').hidden = false; }
+  $('#campName').textContent = S.camp.name;
+  $('#campAlt').textContent = S.message.altText;
+  updateStats();
+  $('#btnHere').hidden = !(liff.isInClient() && SAFE_CTX.indexOf(S.ctx.type) > -1);
+  $('#btnFriend').hidden = !(CFG.OA_ID && S.isFriend !== 'ใช่');
+  $('#btnAdmin').hidden = !S.admin;
+  show('vMain');
+}
+
+async function share() {
+  if (!liff.isApiAvailable('shareTargetPicker')) return toast('แชร์จากที่นี่ไม่ได้ — เปิดลิงก์ในแอป LINE');
+  try {
+    const res = await liff.shareTargetPicker([S.message], { isMultiple: true });
+    if (res && res.status === 'success') {
+      toast('แชร์แล้ว ขอบคุณครับ 🙏');
+      const j = await api('share', { session: S.session, c: S.camp.id, via: 'picker' }).catch(() => null);
+      if (j) { S.me.shares = j.shares; updateStats(); }
+    }
+  } catch (e) { toast('แชร์ไม่สำเร็จ: ' + (e.message || e)); }
+}
+async function sendHere() {
+  try {
+    await liff.sendMessages([S.message]);
+    toast('ส่งในแชทแล้ว');
+    const j = await api('share', { session: S.session, c: S.camp.id, via: 'chat' }).catch(() => null);
+    if (j) { S.me.shares = j.shares; updateStats(); }
+  } catch (e) { toast('ส่งไม่สำเร็จ: ' + (e.message || e)); }
+}
+async function copyText(text, okMsg) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); } catch (x) {} t.remove();
+  }
+  toast(okMsg || 'คัดลอกแล้ว');
+}
+
+// ---------- แอดมิน ----------
+function person(p, right) {
+  return '<div class="item"><img src="' + esc(p.picture || 'user.png') + '" alt=""><div class="grow"><div class="name">' + esc(p.name || '-') +
+    '</div><div class="muted">' + right + '</div></div></div>';
+}
+async function loadStats() {
+  const s = await api('adminStats', { session: S.session });
+  $('#aMembers').textContent = s.members; $('#aToday').textContent = s.newToday; $('#aShares').textContent = s.shares;
+  $('#aLevel').textContent = s.maxLevel; $('#aFriends').textContent = s.friends;
+  $('#aTop').innerHTML = s.top.length ? s.top.map((p) => person(p, 'ชวนได้ <span class="num">' + p.invited + '</span> คน · แชร์ ' + p.shares + ' ครั้ง · ชั้น ' + p.level)).join('')
+    : '<p class="muted">ยังไม่มีใครชวนสำเร็จ</p>';
+  $('#aLatest').innerHTML = s.latest.length ? s.latest.map((p) => person(p, esc(p.first) + ' · ชั้น ' + p.level + (p.by ? ' · ชวนโดย ' + esc(p.by) : ''))).join('')
+    : '<p class="muted">ยังไม่มีสมาชิก</p>';
+}
+async function loadCamps() {
+  const r = await api('campaigns', { session: S.session });
+  S.camps = r.data;
+  $('#campList').innerHTML = S.camps.map((c, i) =>
+    '<div class="camp"><div style="display:flex;justify-content:space-between;gap:8px"><b>' + esc(c.name) + '</b>' +
+    '<span class="chip ' + (c.active ? '' : 'off') + '">' + (c.active ? 'เปิดใช้' : 'ปิด') + '</span></div>' +
+    '<div class="muted">id ' + esc(c.id) + ' · ร่วม ' + c.joined + ' คน · แชร์ ' + c.shares + ' ครั้ง' + (c.updated ? ' · แก้ ' + esc(c.updated) : '') + '</div>' +
+    '<div class="btns"><button data-act="edit" data-i="' + i + '">แก้ไข</button><button data-act="copy" data-i="' + i + '">คัดลอกลิงก์</button>' +
+    '<button data-act="test" data-i="' + i + '">ทดสอบส่ง</button></div></div>').join('') || '<p class="muted">ยังไม่มีแคมเปญ</p>';
+}
+function openEditor(c) {
+  S.editId = c ? c.id : '';
+  $('#edTitle').textContent = c ? 'แก้ไข: ' + c.name : 'แคมเปญใหม่';
+  $('#edName').value = c ? c.name : '';
+  $('#edAlt').value = c ? c.altText : '{{name}} แชร์สิ่งนี้ให้คุณ';
+  $('#edNote').value = c ? c.note : '';
+  $('#edActive').checked = c ? c.active : true;
+  let json = c ? c.json : '';
+  try { json = JSON.stringify(JSON.parse(json), null, 2); } catch (e) {}
+  $('#edJson').value = json;
+  $('#btnDel').hidden = !c;
+  $('#editor').hidden = false;
+  $('#editor').scrollIntoView({ behavior: 'smooth' });
+}
+// แทนค่าตัวแปรฝั่งหน้าเว็บ (ใช้ตอนทดสอบก่อนบันทึก) — ตรรกะเดียวกับ Code.gs
+function renderLocal(json, alt, campId, campName) {
+  const url = 'https://liff.line.me/' + CFG.LIFF_ID + '?c=' + encodeURIComponent(campId || 'test') + '&r=' + encodeURIComponent(S.me.ref);
+  const vals = { name: S.me.name || 'เพื่อน', picture: S.me.picture || location.href.replace(/[^/]*$/, '') + 'user.png', shareUrl: url,
+    campaign: campName || '', members: 0, invited: S.me.invited || 0, shares: S.me.shares || 0, date: new Date().toLocaleDateString('th-TH') };
+  const rep = (s, enc) => String(s).replace(/\{\{(\w+)\}\}/g, (m, k) => (k in vals ? (enc ? JSON.stringify(String(vals[k])).slice(1, -1) : String(vals[k])) : m));
+  let contents = JSON.parse(rep(json, true));
+  if (contents.type === 'flex' && contents.contents) contents = contents.contents;
+  if (String(json).indexOf('{{shareUrl}}') < 0) {
+    (contents.type === 'carousel' ? contents.contents : [contents]).forEach((b) => {
+      const btn = { type: 'button', style: 'primary', color: '#06C755', height: 'sm', action: { type: 'uri', label: 'แชร์ต่อให้เพื่อน', uri: url } };
+      if (!b.footer) b.footer = { type: 'box', layout: 'vertical', spacing: 'sm', contents: [btn] };
+      else if (Array.isArray(b.footer.contents)) b.footer.contents.push(btn);
+    });
+  }
+  return { type: 'flex', altText: rep(alt || '{{name}} ส่งข้อความถึงคุณ', false).slice(0, 400), contents };
+}
+async function testSend(json, alt, id, name) {
+  let msg;
+  try { msg = renderLocal(json, alt, id, name); } catch (e) { return toast('JSON ไม่ถูกต้อง: ' + e.message); }
+  if (!liff.isApiAvailable('shareTargetPicker')) return toast('ทดสอบได้เฉพาะในแอป LINE');
+  try {
+    const r = await liff.shareTargetPicker([msg], { isMultiple: true });
+    if (r && r.status === 'success') toast('ส่งทดสอบแล้ว (ไม่นับสถิติ)');
+  } catch (e) { toast('LINE ไม่รับ Flex นี้: ' + (e.message || e)); }
+}
+
+async function adminMain() {
+  await doJoin();
+  if (!S.admin) { show('vClaim'); return; }
+  show('vAdmin');
+  loadStats().catch((e) => toast(e.message));
+  loadCamps().catch((e) => toast(e.message));
+}
+
+// ---------- ปุ่ม ----------
+$('#btnLogin').onclick = () => { savePending(); liff.login({ redirectUri: location.href }); };
+$('#btnShare').onclick = share;
+$('#btnHere').onclick = sendHere;
+$('#btnCopy').onclick = () => copyText(S.shareUrl, 'คัดลอกลิงก์ของคุณแล้ว — โพสต์ที่ไหนก็นับว่าคุณชวน');
+$('#btnFriend').onclick = () => liff.openWindow({ url: 'https://line.me/R/ti/p/' + encodeURIComponent(CFG.OA_ID), external: false });
+$('#btnAdmin').onclick = () => { location.search = '?admin=1'; };
+$('#btnClaim').onclick = async () => {
+  $('#btnClaim').disabled = true;
+  try { await api('adminClaim', { session: S.session, code: $('#claimCode').value }); S.admin = true; show('vAdmin'); loadStats(); loadCamps(); }
+  catch (e) { toast(e.message); }
+  $('#btnClaim').disabled = false;
+};
+$('#tabStats').onclick = () => { $('#tabStats').classList.add('on'); $('#tabCamps').classList.remove('on'); $('#paneStats').hidden = false; $('#paneCamps').hidden = true; };
+$('#tabCamps').onclick = () => { $('#tabCamps').classList.add('on'); $('#tabStats').classList.remove('on'); $('#paneCamps').hidden = false; $('#paneStats').hidden = true; };
+$('#aRefresh').onclick = () => loadStats().then(() => toast('อัปเดตแล้ว')).catch((e) => toast(e.message));
+$('#campList').onclick = (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const c = S.camps[Number(b.dataset.i)];
+  if (b.dataset.act === 'edit') openEditor(c);
+  if (b.dataset.act === 'copy') copyText(c.link, 'คัดลอกลิงก์แคมเปญแล้ว');
+  if (b.dataset.act === 'test') testSend(c.json, c.altText, c.id, c.name);
+};
+$('#btnNewCamp').onclick = () => openEditor(null);
+$('#btnCancel').onclick = () => { $('#editor').hidden = true; };
+$('#btnFmt').onclick = () => {
+  try { $('#edJson').value = JSON.stringify(JSON.parse($('#edJson').value), null, 2); toast('จัดรูปแบบแล้ว'); }
+  catch (e) { toast('JSON ไม่ถูกต้อง: ' + e.message); }
+};
+$('#btnTest').onclick = () => testSend($('#edJson').value, $('#edAlt').value, S.editId, $('#edName').value);
+$('#btnSave').onclick = async () => {
+  $('#btnSave').disabled = true;
+  try {
+    const r = await api('campaignSave', { session: S.session, id: S.editId, name: $('#edName').value, altText: $('#edAlt').value,
+      note: $('#edNote').value, active: $('#edActive').checked, json: $('#edJson').value });
+    S.editId = r.id; toast('บันทึกแล้ว'); $('#editor').hidden = true; await loadCamps();
+  } catch (e) { toast(e.message); }
+  $('#btnSave').disabled = false;
+};
+$('#btnDel').onclick = async () => {
+  if (!S.editId || !confirm('ลบแคมเปญนี้? (ลิงก์ของแคมเปญนี้จะใช้ไม่ได้)')) return;
+  try { await api('campaignDelete', { session: S.session, id: S.editId }); toast('ลบแล้ว'); $('#editor').hidden = true; await loadCamps(); }
+  catch (e) { toast(e.message); }
+};
+
+// ---------- เริ่ม ----------
+(async function main() {
+  const brand = CFG.BRAND || 'เรา';
+  $('#consentText').textContent = 'เมื่อกดเข้าสู่ระบบ คุณยินยอมให้ ' + brand + ' เก็บชื่อ รูปโปรไฟล์ สเตตัส และรหัสผู้ใช้ LINE ของคุณ ' +
+    'เพื่อนับผลการแชร์และส่งข่าวสารที่เกี่ยวข้อง คุณขอลบข้อมูลได้ทุกเมื่อ';
+  if (!CFG.LIFF_ID || !CFG.SCRIPT_URL) return fail('ยังไม่ได้ตั้งค่า LIFF_ID / SCRIPT_URL ใน config.js');
+  try { await liff.init({ liffId: CFG.LIFF_ID }); }
+  catch (e) { return fail('เริ่ม LINE ไม่สำเร็จ: ' + (e.message || e)); }
+  S.params = readParams();
+  if (!liff.isLoggedIn()) {
+    savePending();
+    if (liff.isInClient()) return liff.login();
+    return show('vLanding');
+  }
+  try {
+    if (S.params.has('admin')) return await adminMain();
+    const j = await doJoin();
+    renderMain(j);
+    if (CFG.AUTO_SHARE && j.isNew && liff.isInClient()) setTimeout(share, 500);
+  } catch (e) { handleErr(e); }
+})();
+</script>
+</body>
+</html>

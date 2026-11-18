@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>นโยบายความเป็นส่วนตัว</title>
+<style>
+  :root { --bg: #f3f5f4; --card: #fff; --text: #1d2420; --muted: #6b7570; --green: #05a948; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121614; --card: #1c211e; --text: #e8ece9; --muted: #9aa49f; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, 'Noto Sans Thai', sans-serif; line-height: 1.7; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 16px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 22px; }
+  li { margin-bottom: 4px; } .muted { color: var(--muted); font-size: 13px; } a { color: var(--green); }
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <h1>นโยบายความเป็นส่วนตัว</h1>
+  <p><b class="brand">เรา</b> ("ผู้ให้บริการ") ใช้ระบบเข้าสู่ระบบด้วย LINE เพื่อให้คุณร่วมแชร์ข่าวสารกับเพื่อน หน้านี้อธิบายว่าเราเก็บข้อมูลอะไร และใช้อย่างไร</p>
+
+  <h2>ข้อมูลที่เก็บ</h2>
+  <ul>
+    <li>ข้อมูลจากบัญชี LINE ที่คุณอนุญาต: รหัสผู้ใช้ LINE (userId), ชื่อที่แสดง, รูปโปรไฟล์, ข้อความสเตตัส และอีเมล (เฉพาะเมื่อคุณอนุญาต)</li>
+    <li>ข้อมูลการใช้งาน: ภาษา, ระบบปฏิบัติการ, เวอร์ชันแอป LINE, เวลาเข้าใช้งาน, จำนวนครั้งที่แชร์, ผู้ที่ชวนคุณเข้ามา, สถานะเป็นเพื่อนกับบัญชีทางการของเรา</li>
+  </ul>
+
+  <h2>วัตถุประสงค์</h2>
+  <ul>
+    <li>นับผลการแชร์และการชวนเพื่อน แสดงสถิติให้คุณ</li>
+    <li>ส่งข่าวสาร โปรโมชัน หรือข้อมูลที่เกี่ยวข้องผ่าน LINE (เฉพาะเมื่อคุณเป็นเพื่อนกับบัญชีทางการของเรา และคุณบล็อกได้ทุกเมื่อ)</li>
+  </ul>
+
+  <h2>การเก็บรักษาและการเปิดเผย</h2>
+  <p>ข้อมูลเก็บในระบบของผู้ให้บริการ เข้าถึงได้เฉพาะผู้ดูแล เราไม่ขายข้อมูลของคุณ และไม่เปิดเผยแก่บุคคลอื่น เว้นแต่กฎหมายกำหนด เราเก็บข้อมูลไว้ตราบเท่าที่ยังใช้ตามวัตถุประสงค์ข้างต้น</p>
+
+  <h2>สิทธิของคุณ (พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562)</h2>
+  <p>คุณขอเข้าถึง แก้ไข หรือลบข้อมูล และถอนความยินยอมได้ทุกเมื่อ โดยติดต่อเรา<span class="contact"></span> หรือยกเลิกการเชื่อมต่อแอปได้ที่ LINE &gt; ตั้งค่า &gt; บัญชี &gt; แอปที่เชื่อมต่อ</p>
+
+  <p class="muted">ปรับปรุงล่าสุด: 18 พฤศจิกายน 2569</p>
+  <p><a href="./">← กลับ</a></p>
+</div></div>
+<script src="config.js"></script>
+<script>
+  const c = window.LS_CONFIG || {};
+  if (c.BRAND) document.querySelectorAll('.brand').forEach((e) => { e.textContent = c.BRAND; });
+  if (c.OA_ID) document.querySelector('.contact').textContent = ' ทางแชท LINE ' + c.OA_ID;
+</script>
+</body>
+</html>
