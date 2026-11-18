@@ -489,3 +489,101 @@ function sampleFlex_() {
         action: { type: 'uri', label: 'แชร์ต่อให้เพื่อน', uri: '{{shareUrl}}' } }] },
   };
 }
+
+// ---------- รูปโปรไฟล์: ลิงก์รูป → รูปในช่อง (คอลัมน์ V) + ไฟล์รูปใน Google Drive (คอลัมน์ W) ----------
+// ทำงานอัตโนมัติทุก 1 นาที (ติดตั้งครั้งเดียว: เลือก installImageTrigger > เรียกใช้)
+// เปลี่ยนรูปโปรไฟล์ใหม่ → แปลงใหม่ให้เอง (เทียบกับลิงก์ที่จดไว้ในโน้ตของช่องรูป)
+const IMG_COL = 22, FILE_COL = 23;
+const IMG_FOLDER = 'LINE Share - รูปโปรไฟล์';
+const IMG_BATCH = 25;   // ต่อรอบ (กันทำงานนานเกิน)
+
+function installImageTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'processImages') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('processImages').timeBased().everyMinutes(1).create();
+  processImages();
+  Logger.log('ตั้งเวลาแปลงรูปทุก 1 นาทีแล้ว — ไฟล์อยู่ใน Drive โฟลเดอร์ "' + IMG_FOLDER + '"');
+}
+
+function imageFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('IMG_FOLDER_ID');
+  if (id) {
+    try { const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (e) {}
+  }
+  const folder = DriveApp.createFolder(IMG_FOLDER);
+  props.setProperty('IMG_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+function processImages() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get('img_running')) return;
+  cache.put('img_running', '1', 300);
+  try {
+    const sh = tab_(T_MEMBERS);
+    if (sh.getRange(1, IMG_COL).getValue() !== 'รูป') {
+      sh.getRange(1, IMG_COL, 1, 2).setValues([['รูป', 'ไฟล์รูป (Drive)']]).setFontWeight('bold').setBackground('#e8f5e9');
+      sh.setColumnWidth(IMG_COL, 64);
+    }
+    const last = sh.getLastRow();
+    if (last < 2) return;
+    const n = last - 1;
+    const rows = sh.getRange(2, 1, n, M.PIC).getValues();      // userId, ชื่อ, ลิงก์รูป
+    const notes = sh.getRange(2, IMG_COL, n, 1).getNotes();     // ลิงก์ที่แปลงไปแล้ว
+    let done = 0;
+    for (let i = 0; i < n && done < IMG_BATCH; i++) {
+      const url = String(rows[i][M.PIC - 1] || '').trim();
+      if (!/^https:\/\//.test(url) || notes[i][0] === url) continue;
+      const row = i + 2;
+      try {
+        convertImage_(sh, row, url, String(rows[i][0]), String(rows[i][M.NAME - 1]));
+      } catch (e) {
+        sh.getRange(row, IMG_COL).setValue('โหลดรูปไม่ได้').setNote(url);
+        sh.getRange(row, FILE_COL).setValue(String(e && e.message || e).slice(0, 200));
+      }
+      done++;
+    }
+  } finally {
+    cache.remove('img_running');
+  }
+}
+
+function convertImage_(sh, row, url, uid, name) {
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  if (res.getResponseCode() !== 200) throw new Error('โหลดรูปไม่ได้ (HTTP ' + res.getResponseCode() + ')');
+  const blob = res.getBlob();
+  const type = String(blob.getContentType() || 'image/jpeg');
+  if (type.indexOf('image/') !== 0) throw new Error('ลิงก์นี้ไม่ใช่รูป (' + type + ')');
+  const ext = (type.split('/')[1] || 'jpg').replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '') || 'jpg';
+  const safeName = String(name || 'user').replace(/[\\\/:*?"<>|#%']/g, '').trim().slice(0, 40) || 'user';
+  blob.setName(safeName + '_' + uid + '.' + ext);
+
+  // ไฟล์ใน Drive (รูปเดิมของคนนี้ย้ายลงถังขยะ)
+  const folder = imageFolder_();
+  const old = folder.searchFiles("title contains '" + uid + "' and trashed = false");
+  while (old.hasNext()) old.next().setTrashed(true);
+  const file = folder.createFile(blob);
+  file.setDescription('LINE ' + uid + ' | ' + url);
+
+  // รูปในช่อง: ใช้รูปขนาด 200px ของ LINE (/large) ฝังเป็น data URL ในชีต — ลิงก์เดิมหมดอายุรูปก็ยังอยู่
+  let small = blob;
+  if (/line-scdn\.net/.test(url)) {
+    try {
+      const r2 = UrlFetchApp.fetch(url + '/large', { muteHttpExceptions: true });
+      if (r2.getResponseCode() === 200 && String(r2.getBlob().getContentType()).indexOf('image/') === 0) small = r2.getBlob();
+    } catch (e) {}
+  }
+  let img;
+  try {
+    img = SpreadsheetApp.newCellImage()
+      .setSourceUrl('data:' + small.getContentType() + ';base64,' + Utilities.base64Encode(small.getBytes()))
+      .setAltTextTitle(String(name || '')).build();
+  } catch (e) {
+    img = SpreadsheetApp.newCellImage().setSourceUrl(url).setAltTextTitle(String(name || '')).build();
+  }
+  sh.getRange(row, IMG_COL).setValue(img).setNote(url);
+  sh.getRange(row, FILE_COL).setFormula('=HYPERLINK("https://drive.google.com/file/d/' + file.getId() + '/view","เปิดไฟล์รูป")');
+  sh.setRowHeight(row, 60);
+}
