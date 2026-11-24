@@ -70,6 +70,7 @@ function route_(p) {
     case 'setMain': return setMain_(p);
     case 'teamMe': return teamMe_(p);
     case 'teamBoard': return teamBoard_(p);
+    case 'areas': return areaList_(p);
     default: throw new Error('คำสั่งไม่ถูกต้อง: ' + p.action);
   }
 }
@@ -351,6 +352,26 @@ function requireAdmin_(p) {
   return uid;
 }
 
+// เจ้าของระบบ = คนเดียวที่สร้าง/แก้/ลบ/ตั้งแคมเปญหลักได้ (แอดมินคนอื่นดูสถิติได้อย่างเดียว)
+// เก็บใน Script property OWNER_UID — ตั้งด้วย setupOwnerOnly (ถ้ายังไม่ตั้ง ใช้แอดมินแถวแรกในแท็บ admins)
+function ownerUid_() {
+  const props = PropertiesService.getScriptProperties();
+  let o = props.getProperty('OWNER_UID');
+  if (!o) {
+    const sh = tab_(T_ADMINS);
+    if (sh.getLastRow() >= 2) {
+      o = String(sh.getRange(2, 1).getValue()).trim();
+      if (o) props.setProperty('OWNER_UID', o);
+    }
+  }
+  return o || '';
+}
+function requireOwner_(p) {
+  const uid = requireAdmin_(p);
+  if (uid !== ownerUid_()) throw fail_('เฉพาะเจ้าของระบบเท่านั้นที่สร้าง/แก้ไขแคมเปญได้', 'owner');
+  return uid;
+}
+
 // ใส่รหัส: รหัสแอดมิน (showAdminCode) → แอดมิน · รหัสทีมงาน (showTeamCode) → ทีมงาน
 function adminClaim_(p) {
   const uid = checkSession_(p.session);
@@ -369,7 +390,7 @@ function adminClaim_(p) {
   return withLock_(function () {
     const me = member_(uid);
     if (role === 'admin' && !isAdmin_(uid)) tab_(T_ADMINS).appendRow([uid, txt_(me.name), new Date()]);
-    if (role === 'team') addTeam_(uid, me);
+    if (role === 'team') return { ok: true, role: role, area: claimSeat_(uid, me, p.area) };
     return { ok: true, role: role };
   });
 }
@@ -403,7 +424,7 @@ function adminStats_(p) {
 }
 
 function campaignList_(p) {
-  requireAdmin_(p);
+  requireOwner_(p);
   const main = mainCampaignId_();
   return {
     ok: true, main: main,
@@ -427,7 +448,7 @@ function writeJson_(sh, row, json) {
 }
 
 function campaignSave_(p) {
-  requireAdmin_(p);
+  requireOwner_(p);
   const name = String(p.name || '').trim().slice(0, 100);
   if (!name) throw new Error('กรุณาใส่ชื่อแคมเปญ');
   const check = validateFlex_(String(p.json || ''));
@@ -454,7 +475,7 @@ function campaignSave_(p) {
 }
 
 function setMain_(p) {
-  requireAdmin_(p);
+  requireOwner_(p);
   const c = campaigns_().filter(function (x) { return x.id === String(p.id); })[0];
   if (!c) throw new Error('ไม่พบแคมเปญ');
   settingsTab_().getRange('B2').setValue(c.id);
@@ -462,7 +483,7 @@ function setMain_(p) {
 }
 
 function campaignDelete_(p) {
-  requireAdmin_(p);
+  requireOwner_(p);
   return withLock_(function () {
     const sh = tab_(T_CAMPAIGNS);
     const row = findRow_(sh, C.ID, p.id);
@@ -513,8 +534,6 @@ function sampleFlex_() {
         { type: 'box', layout: 'vertical', justifyContent: 'center', contents: [
           { type: 'text', text: '{{name}}', weight: 'bold', size: 'sm', wrap: true },
           { type: 'text', text: 'แชร์สิ่งนี้ให้คุณ', size: 'xs', color: '#888888' }] }] },
-      { type: 'text', text: 'ลองดูสิ่งนี้ 👇', weight: 'bold', size: 'xl', wrap: true },
-      { type: 'text', text: 'แก้รูป ข้อความ และลิงก์ของการ์ดนี้ได้ในหน้าแอดมิน', size: 'sm', color: '#555555', wrap: true },
       { type: 'text', text: 'ร่วมแชร์แล้ว {{members}} คน', size: 'xs', color: '#06C755' }] },
     footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: [
       { type: 'button', style: 'primary', color: '#06C755', height: 'sm',
@@ -868,7 +887,8 @@ function setupCampaignTools() {
 // ถอดออกจากทีม: ลบแถวของคนนั้นในแท็บ "ทีมงาน" (ระบบคำนวณสายใหม่ให้เองภายใน 1 นาที)
 const T_TEAM = 'ทีมงาน', T_REPORT = 'รายงานทีม';
 const TEAM_COL = 24, TEAM_NAME_COL = 25;   // members: X = ทีมของ (userId), Y = ทีมของ (ชื่อ)
-const TEAM_HEAD = ['userId', 'ชื่อ LINE', 'รหัสแนะนำ', 'ลิงก์ส่วนตัว (โพสต์ที่ไหนก็นับให้คนนี้)', 'เข้าร่วมทีม', 'หมายเหตุ'];
+const TEAM_AREA_COL = 7;                    // ทีมงาน: G = เขตพื้นที่
+const TEAM_HEAD = ['userId', 'ชื่อ LINE', 'รหัสแนะนำ', 'ลิงก์ส่วนตัว (โพสต์ที่ไหนก็นับให้คนนี้)', 'เข้าร่วมทีม', 'หมายเหตุ', 'เขตพื้นที่'];
 const METRICS = { chain: 'สายทั้งหมด (คน)', direct: 'ชวนตรง (คน)', shares: 'แชร์ (ครั้ง)' };
 const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
@@ -881,7 +901,7 @@ function teamTab_() {
   sh = ss.insertSheet(T_TEAM);
   sh.getRange(1, 1, 1, TEAM_HEAD.length).setValues([TEAM_HEAD]).setFontWeight('bold').setBackground('#e8f5e9');
   sh.setFrozenRows(1);
-  [300, 170, 90, 380, 130, 200].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  [300, 170, 90, 380, 130, 200, 200].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   return sh;
 }
 
@@ -902,10 +922,10 @@ function teamSet_(fresh) {
   return set;
 }
 
-function addTeam_(uid, me) {
+function addTeam_(uid, me, area) {
   const sh = teamTab_();
   if (findRow_(sh, 1, uid)) return;
-  sh.appendRow([uid, txt_(me.name), txt_(me.ref), personalLink_(me.ref), new Date(), '']);
+  sh.appendRow([uid, txt_(me.name), txt_(me.ref), personalLink_(me.ref), new Date(), '', txt_(area || '')]);
   CacheService.getScriptCache().removeAll(['team_set', 'team_stats_' + ym_(new Date())[0]]);
   PropertiesService.getScriptProperties().setProperty('TEAM_DIRTY', '1');
 }
@@ -1013,7 +1033,7 @@ function teamMe_(p) {
   const me = st.list.filter(function (x) { return x.id === uid; })[0];
   if (!me) return { ok: true, team: false };
   const rank = function (k) { return 1 + st.list.filter(function (x) { return x.chain[k] > me.chain[k]; }).length; };
-  return { ok: true, team: true, me: me, rank: { m: rank('m'), y: rank('y'), all: rank('all') },
+  return { ok: true, team: true, area: teamArea_(uid), me: me, rank: { m: rank('m'), y: rank('y'), all: rank('all') },
     size: st.list.length, year: st.curY, month: MONTHS_TH[st.curM - 1] };
 }
 
@@ -1074,7 +1094,7 @@ function buildTeamReport_() {
     rows.push(pad([i + 1, s.name, s.shares.m, s.direct.m, s.chain.m, s.shares.y, s.direct.y, s.chain.y,
       s.shares.all, s.direct.all, s.chain.all, s.depth, s.link]));
   });
-  if (!list.length) rows.push(pad(['', 'ยังไม่มีทีมงาน — ให้ทีมงานเปิด https://liff.line.me/' + LIFF_ID + '?team=1 ในแอป LINE แล้วใส่รหัสทีมงาน']));
+  if (!list.length) rows.push(pad(['', 'ยังไม่มีทีมงาน — วิธีเพิ่มดูแท็บ "คู่มือ" ข้อ 3 (คัดลอกข้อความเชิญสีเหลือง ส่งให้พนักงานในแชท LINE)']));
   rows.push(pad(['', 'รวมทั้งทีม',
     sum(list, function (s) { return s.shares.m; }), sum(list, function (s) { return s.direct.m; }), sum(list, function (s) { return s.chain.m; }),
     sum(list, function (s) { return s.shares.y; }), sum(list, function (s) { return s.direct.y; }), sum(list, function (s) { return s.chain.y; }),
@@ -1140,4 +1160,355 @@ function setupTeam() {
 function showTeamCode() {
   Logger.log('รหัสทีมงาน: ' + PropertiesService.getScriptProperties().getProperty('TEAM_CODE') +
     ' · ลิงก์ให้ทีมงานเปิดในแอป LINE: https://liff.line.me/' + LIFF_ID + '?team=1');
+}
+
+// ---------- คู่มือ: แท็บแรกของชีต (ลิงก์ทั้งหมด + รหัส + ข้อความเชิญทีมงาน) ----------
+// สร้าง/อัปเดต: เลือก setupGuide > เรียกใช้ (ดึงรหัสปัจจุบันมาใส่ให้เอง)
+const T_GUIDE = 'คู่มือ';
+
+function setupGuide() {
+  const ss = ss_();
+  let sh = ss.getSheetByName(T_GUIDE);
+  if (!sh) sh = ss.insertSheet(T_GUIDE, 0);
+  const props = PropertiesService.getScriptProperties();
+  const base = 'https://liff.line.me/' + LIFF_ID;
+  const teamCode = props.getProperty('TEAM_CODE') || '(ยังไม่มี — เรียกใช้ setupTeam ก่อน)';
+  const adminCode = props.getProperty('ADMIN_CODE') || '(ยังไม่มี — เรียกใช้ setup ก่อน)';
+  const invite = [
+    '📣 เชิญเข้าร่วมทีม CeeShop',
+    '1) กดลิงก์นี้ในแอป LINE บนมือถือ: ' + base + '?team=1',
+    '2) กด "อนุญาต"',
+    '3) เลือกเขตพื้นที่ของคุณ (กรุงเทพ 50 เขต หรือภาคตำรวจภูธร เขตละ 2 คน มาก่อนได้ก่อน)',
+    '4) ใส่รหัสทีมงาน ' + teamCode + ' แล้วกด "ยืนยัน" (ทำครั้งเดียว)',
+    '',
+    'เสร็จแล้วจะเห็นกล่อง "ยอดของคุณ"',
+    '• กด 📤 แชร์ต่อให้เพื่อน เพื่อส่งการ์ดให้เพื่อนใน LINE',
+    '• หรือกด 🔗 คัดลอกลิงก์ทีมงานของฉัน ไปโพสต์ที่ไหนก็ได้ (Facebook, กลุ่ม LINE ฯลฯ)',
+    'ทุกคนที่เข้ามาจากการ์ด/ลิงก์ของคุณ และคนที่เขาแชร์ต่อไปอีกทุกทอด จะนับเป็นยอดของคุณ',
+    'ดูยอดตัวเองครั้งต่อไป: เปิด ' + base + ' ในแอป LINE',
+  ].join('\n');
+
+  // [ช่อง A, ช่อง B, รูปแบบ] รูปแบบ: title หัวเรื่อง · h หัวข้อ · n หมายเหตุ · i ข้อความเชิญ · k รหัส
+  const R = [
+    ['📘 คู่มือ LINE Share — CeeShop', '', 'title'],
+    ['อัปเดต ' + Utilities.formatDate(new Date(), TZ, 'd/M/yyyy HH:mm') + '  ·  ⚠️ หน้านี้มีรหัสลับ อย่าแชร์ชีตนี้ให้คนอื่น', '', 'n'],
+    ['', ''],
+    ['1) ลิงก์ทั้งหมด — แต่ละลิงก์ใช้ทำอะไร', 'ลิงก์', 'h'],
+    ['ลิงก์หลัก (ส่งให้ลูกค้า / โพสต์ได้ทุกที่)\nลูกค้ากด → อนุญาต → เห็นการ์ดแคมเปญหลัก → กดแชร์ต่อ · ชื่อ รูป userId เก็บลงแท็บ members', base],
+    ['ลิงก์สมัครทีมงาน (ส่งให้ "พนักงาน" เท่านั้น ไม่ใช่ลูกค้า)\nทุกคนใช้ลิงก์เดียวกัน + รหัสทีมงานเดียวกัน · กดครั้งเดียว ใส่รหัส ก็เป็นทีมงาน', base + '?team=1'],
+    ['ลิงก์หน้าแอดมิน (เจ้าของใช้คนเดียว ในแอป LINE)\nครั้งแรกใส่รหัสแอดมิน · ดูสถิติ อันดับทีมงาน แก้แคมเปญ', base + '?admin=1'],
+    ['ลิงก์ส่วนตัวของทีมงานแต่ละคน (ระบบสร้างให้เองตอนสมัคร)\nใครเข้าจากลิงก์นี้นับเป็นยอดของเจ้าของลิงก์ · ดูได้ที่แท็บ "ทีมงาน" คอลัมน์ D', 'ดูแท็บ "ทีมงาน" คอลัมน์ D'],
+    ['ลิงก์ของแต่ละแคมเปญ (โชว์การ์ดแคมเปญนั้นแทนแคมเปญหลัก)', 'ดูแท็บ "campaigns" คอลัมน์ F'],
+    ['', ''],
+    ['2) รหัส', 'รหัส', 'h'],
+    ['รหัสทีมงาน — บอกพนักงานทุกคน (รหัสเดียวกันทั้งทีม)', teamCode, 'k'],
+    ['รหัสแอดมิน — เก็บไว้คนเดียว ใครมีรหัสนี้แก้แคมเปญได้', adminCode, 'k'],
+    ['', ''],
+    ['3) วิธีเพิ่มทีมงาน (1 คน หรือ 60 คน ทำเหมือนกัน)', '', 'h'],
+    ['ขั้นที่ 1  คัดลอกข้อความเชิญในช่องสีเหลืองด้านล่าง: ดับเบิลคลิกในช่อง > Ctrl+A > Ctrl+C', ''],
+    ['ขั้นที่ 2  วางส่งในแชท LINE — ส่งในกลุ่มพนักงานครั้งเดียวได้ทั้ง 60 คน หรือส่งทีละคนก็ได้', ''],
+    ['ขั้นที่ 3  พนักงานแต่ละคนกดลิงก์ในแอป LINE บนมือถือ → กด "อนุญาต" → เลือกเขตพื้นที่จากช่องเลื่อนลง (เต็มแล้วเลือกไม่ได้) → ใส่รหัสทีมงาน → กด "ยืนยัน"', ''],
+    ['ขั้นที่ 4  ภายใน 1 นาที ชื่อพนักงานขึ้นในแท็บ "ทีมงาน" (พร้อมลิงก์ส่วนตัว) และในแท็บ "รายงานทีม"', ''],
+    ['ขั้นที่ 5  พนักงานแชร์ตามปกติ — ยอดของใครของมัน แยกให้เองอัตโนมัติ', ''],
+    ['ถอดพนักงานออก: ลบแถวของเขาในแท็บ "ทีมงาน" (คนที่เขาชวนไว้จะไปนับให้ทีมงานที่อยู่สูงขึ้นไปในสาย ถ้ามี)', '', 'n'],
+    ['ข้อความเชิญ ↓ (ดับเบิลคลิกในช่อง > Ctrl+A > Ctrl+C แล้ววางในแชท LINE)', '', 'b'],
+    [invite, '', 'i'],
+    ['', ''],
+    ['4) ดูยอดทีมงาน', '', 'h'],
+    ['แท็บ "รายงานทีม" — อันดับทุกคน เดือนนี้ / ทั้งปี / ทั้งหมด + ตารางรายเดือน ม.ค.–ธ.ค.\nเปลี่ยนปีที่ช่อง B1 · เปลี่ยนตัวเลขที่ช่อง E1 · อัปเดตเองทุก 15 นาที', ''],
+    ['สายทั้งหมด = ทุกคนที่ต่อมาจากพนักงานคนนั้นทุกทอด (ถ้าในสายมีทีมงานหลายคน นับให้คนที่ใกล้ที่สุด ไม่นับซ้ำ)', ''],
+    ['ชวนตรง = คนที่กดการ์ด/ลิงก์ของพนักงานคนนั้นเองแล้วเข้ามา', ''],
+    ['แชร์ = จำนวนครั้งที่กดแชร์สำเร็จ (LINE ไม่บอกว่าส่งถึงกี่คน)', ''],
+    ['ในมือถือ: เจ้าของเปิดลิงก์หน้าแอดมิน > แท็บ "ทีมงาน" · พนักงานเปิดลิงก์หลัก > กล่อง "ยอดของคุณ"', ''],
+    ['', ''],
+    ['5) แคมเปญ (การ์ด Flex ที่ลูกค้าเห็น)', '', 'h'],
+    ['ทำการ์ดที่ Flex Message Simulator > View as JSON > Copy > แท็บ campaigns แถวว่าง ดับเบิลคลิกช่อง L > Ctrl+V', 'https://developers.line.biz/flex-simulator/'],
+    ['เลือกว่าลิงก์หลักโชว์แคมเปญไหน: แท็บ "ตั้งค่า" ช่อง B2 (วิธีละเอียดอยู่ในแท็บ ตั้งค่า)', ''],
+    ['🔒 สร้าง/แก้/ลบแคมเปญได้เฉพาะ "เจ้าของระบบ" คนเดียว — ทั้งในแอป LINE (ต้องเป็นบัญชี LINE ของเจ้าของ) และในชีต (แท็บ campaigns กับ ตั้งค่า แก้ได้แค่เจ้าของชีต) · แอดมินหรือทีมงานคนอื่นทำไม่ได้', '', 'n'],
+    ['ถ้ายังใช้แคมเปญตัวอย่าง c1 อยู่ ปุ่มในการ์ดยังพาไป develop-marketing.com — ควรทำการ์ดของ CeeShop แล้วตั้งเป็นแคมเปญหลัก', '', 'n'],
+    ['', ''],
+    ['6) แต่ละแท็บในชีตนี้', 'เก็บอะไร', 'h'],
+    ['คู่มือ', 'หน้านี้'],
+    ['ตั้งค่า', 'เลือกแคมเปญหลัก + วิธีสร้างแคมเปญ'],
+    ['รายงานทีม', 'ยอดทีมงานรายคน รายเดือน รายปี'],
+    ['เขตพื้นที่', 'รายการเขต (กรุงเทพ 50 เขต + ภาค) · รับได้กี่คนต่อเขต · เหลือกี่ที่ · เพิ่มเขตใหม่ = เติมแถวท้ายตาราง'],
+    ['ทีมงาน', 'รายชื่อทีมงาน + เขตพื้นที่ + ลิงก์ส่วนตัว (ลบแถว = ถอดออกจากทีม คืนที่นั่งให้เขตนั้น)'],
+    ['members', 'ทุกคนที่กดลิงก์: โปรไฟล์ LINE, userId, ใครชวน, ชั้นที่, ทีมของ, รูป'],
+    ['events', 'ประวัติทุกครั้งที่เข้า / แชร์'],
+    ['campaigns', 'แคมเปญทั้งหมด (JSON ของการ์ด)'],
+    ['admins', 'รายชื่อแอดมิน'],
+    ['', ''],
+    ['7) ข้อควรรู้', '', 'h'],
+    ['เปิดลิงก์ในแอป LINE บนมือถือดีที่สุด (เปิดในคอมต้องล็อกอิน LINE ก่อน และปุ่ม "ส่งในห้องแชทนี้" ใช้ไม่ได้)', ''],
+    ['userId ที่เก็บได้ ใช้ส่งข้อความหาลูกค้าผ่าน @ceeshop ไม่ได้ (อยู่คนละ Provider) — ส่งข่าวให้ใช้ Broadcast ของ @ceeshop แทน', ''],
+    ['สร้างหน้านี้ใหม่ (เช่น หลังเปลี่ยนรหัส): Apps Script > เลือกฟังก์ชัน setupGuide > เรียกใช้', '', 'n'],
+  ];
+
+  sh.clear();
+  sh.getRange(1, 1, sh.getMaxRows(), Math.min(2, sh.getMaxColumns())).breakApart();
+  if (sh.getMaxColumns() > 2) sh.deleteColumns(3, sh.getMaxColumns() - 2);
+  if (sh.getMaxRows() < R.length + 5) sh.insertRowsAfter(sh.getMaxRows(), R.length + 5 - sh.getMaxRows());
+  sh.getRange(1, 2, R.length, 1).setNumberFormat('@');
+  sh.getRange(1, 1, R.length, 2).setValues(R.map(function (r) { return [r[0], r[1]]; }))
+    .setWrap(true).setVerticalAlignment('middle').setFontSize(11);
+  R.forEach(function (r, i) {
+    if (/^https:\/\//.test(r[1])) sh.getRange(i + 1, 2).setRichTextValue(
+      SpreadsheetApp.newRichTextValue().setText(r[1]).setLinkUrl(r[1]).build());
+  });
+  sh.setColumnWidth(1, 640);
+  sh.setColumnWidth(2, 430);
+  sh.setHiddenGridlines(true);
+  R.forEach(function (r, i) {
+    const row = i + 1, kind = r[2];
+    if (kind === 'title') sh.getRange(row, 1).setFontSize(18).setFontWeight('bold');
+    else if (kind === 'h') sh.getRange(row, 1, 1, 2).setFontWeight('bold').setFontSize(13).setBackground('#e8f5e9');
+    else if (kind === 'n') sh.getRange(row, 1, 1, 2).setFontColor('#b26a00');
+    else if (kind === 'b') sh.getRange(row, 1).setFontWeight('bold');
+    else if (kind === 'k') sh.getRange(row, 2).setFontWeight('bold').setFontSize(16).setBackground('#fff8e1');
+    else if (kind === 'i') {
+      sh.getRange(row, 1, 1, 2).merge().setBackground('#fff8e1').setVerticalAlignment('top')
+        .setBorder(true, true, true, true, false, false, '#f4b400', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    }
+  });
+  sh.autoResizeRows(1, R.length);
+  R.forEach(function (r, i) { if (r[2] === 'i') sh.setRowHeight(i + 1, 250); });
+  Logger.log('สร้างแท็บ "' + T_GUIDE + '" แล้ว (' + R.length + ' แถว)');
+}
+
+// ---------- เจ้าของระบบ: สร้างแคมเปญได้คนเดียว ----------
+// ติดตั้ง/ตั้งใหม่: เลือก setupOwnerOnly > เรียกใช้ (เจ้าของ = แอดมินแถวแรกในแท็บ admins + ล็อกแท็บ campaigns/ตั้งค่า ให้แก้ได้แค่เจ้าของชีต)
+// เปลี่ยนเจ้าของ: ย้ายคนนั้นไปแถว 2 ของแท็บ admins แล้วรัน setupOwnerOnly ใหม่
+// ตรวจ: testOwnerOnly (เจ้าของผ่าน / แอดมินคนอื่นไม่ผ่าน / คนทั่วไปไม่ผ่าน)
+const LOCK_NOTE = 'LINE Share: แก้ได้เฉพาะเจ้าของ';
+
+function lockCampaignTabs() {
+  const owner = ss_().getOwner();   // เจ้าของชีต (วิธีนี้ไม่ต้องขอสิทธิ์อีเมลเพิ่ม)
+  const me = owner ? owner.getEmail() : '';
+  if (!me) throw new Error('อ่านอีเมลเจ้าของชีตไม่ได้ (ชีตอยู่ใน Shared Drive?) — ยังไม่ได้ล็อกแท็บ');
+  const done = [];
+  [T_CAMPAIGNS, T_SETTINGS, T_AREAS].forEach(function (name) {
+    const sh = ss_().getSheetByName(name);
+    if (!sh) return;
+    let pr = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).filter(function (x) { return x.getDescription() === LOCK_NOTE; })[0];
+    if (!pr) pr = sh.protect().setDescription(LOCK_NOTE);
+    pr.addEditor(me);
+    const others = pr.getEditors().filter(function (u) { return u.getEmail() !== me; });
+    if (others.length) pr.removeEditors(others);
+    if (pr.canDomainEdit()) pr.setDomainEdit(false);
+    done.push(name);
+  });
+  return done;
+}
+
+function setupOwnerOnly() {
+  const sh = tab_(T_ADMINS);
+  if (sh.getLastRow() < 2) throw new Error('ยังไม่มีแอดมิน — เปิดลิงก์ ?admin=1 ในแอป LINE ใส่รหัสแอดมินก่อน แล้วรันใหม่');
+  const row = sh.getRange(2, 1, 1, 2).getValues()[0];
+  PropertiesService.getScriptProperties().setProperty('OWNER_UID', String(row[0]).trim());
+  const locked = lockCampaignTabs();
+  Logger.log('เจ้าของระบบ: ' + row[1] + ' (' + String(row[0]).slice(0, 8) + '…) · ล็อกแท็บ: ' + locked.join(', ') +
+    ' · ตอนนี้มีแต่เจ้าของที่สร้าง/แก้/ลบแคมเปญได้ (ทั้งในแอป LINE และในชีต)');
+}
+
+function testOwnerOnly() {
+  const owner = ownerUid_();
+  if (!owner) throw new Error('ยังไม่มีเจ้าของ — รัน setupOwnerOnly ก่อน');
+  const sh = tab_(T_ADMINS);
+  const fake = 'Utest' + rand_(8);
+  const attempt = function (uid) {
+    try { campaignDelete_({ session: makeSession_(uid), id: '__none__' }); return { msg: 'ผ่าน' }; }
+    catch (e) { return { code: e.code || '', msg: e.message }; }
+  };
+  const r = { owner: attempt(owner), stranger: attempt('Unobody' + rand_(8)) };
+  sh.appendRow([fake, 'ทดสอบ (ลบเอง)', new Date()]);
+  try { r.otherAdmin = attempt(fake); }
+  finally { const row = findRow_(sh, 1, fake); if (row) sh.deleteRow(row); }
+  const ok = [
+    ['เจ้าของ ผ่านด่านสิทธิ์', r.owner.msg === 'ไม่พบแคมเปญ'],
+    ['คนทั่วไป ถูกปฏิเสธ', r.stranger.code === 'admin'],
+    ['แอดมินคนอื่น ถูกปฏิเสธ', r.otherAdmin.code === 'owner'],
+  ];
+  ok.forEach(function (x) { Logger.log((x[1] ? '✅ ' : '❌ ') + x[0]); });
+  Logger.log(ok.every(function (x) { return x[1]; }) ? 'ผ่านทั้งหมด (ลบแถวแอดมินทดสอบแล้ว)' : 'มีข้อที่ไม่ผ่าน: ' + JSON.stringify(r));
+}
+
+// ---------- ลบข้อความออกจาก Flex ของแคมเปญที่มีอยู่แล้ว ----------
+// stripCampaignText(['ข้อความเต็มตรงตัว', ...]) = ลบกล่อง text ที่ข้อความตรงทั้งบรรทัด ออกจากทุกแคมเปญ (ที่เหลือไม่แตะ)
+// cleanSampleText = ลบ "ลองดูสิ่งนี้ 👇" กับ "แก้รูป ข้อความ และลิงก์ของการ์ดนี้ได้ในหน้าแอดมิน" ออกจากการ์ดตัวอย่าง
+function stripFlexText_(node, phrases, stat) {
+  if (Array.isArray(node)) {
+    return node.filter(function (x) {
+      const hit = x && x.type === 'text' && phrases.indexOf(String(x.text).trim()) > -1;
+      if (hit) stat.n++;
+      return !hit;
+    }).map(function (x) { return stripFlexText_(x, phrases, stat); });
+  }
+  if (node && typeof node === 'object') {
+    Object.keys(node).forEach(function (k) { node[k] = stripFlexText_(node[k], phrases, stat); });
+  }
+  return node;
+}
+
+function stripCampaignText(phrases) {
+  const sh = tab_(T_CAMPAIGNS);
+  const res = [];
+  withLock_(function () {
+    campaigns_().forEach(function (c) {
+      let obj;
+      try { obj = JSON.parse(c.json); } catch (e) { return; }
+      const stat = { n: 0 };
+      obj = stripFlexText_(obj, phrases, stat);
+      if (!stat.n) return;
+      writeJson_(sh, c.row, JSON.stringify(obj));
+      res.push(c.id + ' (ลบ ' + stat.n + ' ข้อความ)');
+    });
+  });
+  return res;
+}
+
+function cleanSampleText() {
+  const done = stripCampaignText(['ลองดูสิ่งนี้ 👇', 'แก้รูป ข้อความ และลิงก์ของการ์ดนี้ได้ในหน้าแอดมิน']);
+  Logger.log(done.length ? 'ลบข้อความออกจากแคมเปญ: ' + done.join(', ') + ' (สถานะในชีตอัปเดตเองภายใน 1 นาที)' : 'ไม่พบข้อความนี้ในแคมเปญไหนเลย');
+}
+
+// ---------- เขตพื้นที่: ทีมงานเลือกเขตตอนสมัคร (ช่องเลื่อนลง) · เขตละกี่คนตั้งในชีต ----------
+// ติดตั้งครั้งเดียว: เลือก setupAreas > เรียกใช้ (สร้างแท็บ "เขตพื้นที่" 50 เขตกรุงเทพ + ภาคตำรวจภูธร เขตละ 2 คน)
+// เพิ่มเขตใหม่ / เปลี่ยนจำนวนที่รับ: แก้ในแท็บ "เขตพื้นที่" (คอลัมน์ C "รับได้" = 0 → ปิดไม่ให้เลือก)
+// ที่นั่งนับจากแท็บ "ทีมงาน" คอลัมน์ G — ลบแถวทีมงาน = คืนที่นั่งให้เขตนั้น · ตรวจ: testAreaCap
+const T_AREAS = 'เขตพื้นที่';
+const AREA_DESC_COL = 7;   // เขตพื้นที่: G = คำอธิบาย (โชว์ต่อท้ายชื่อในตัวเลือก เช่น จังหวัดในภาค)
+const AREA_ROWS = 200;     // สูตรนับที่นั่งเตรียมไว้ถึงแถวนี้ (เพิ่มเขตใหม่ได้ถึงแถว 200)
+const BKK_DISTRICTS = ['พระนคร', 'ดุสิต', 'หนองจอก', 'บางรัก', 'บางเขน', 'บางกะปิ', 'ปทุมวัน', 'ป้อมปราบศัตรูพ่าย', 'พระโขนง', 'มีนบุรี',
+  'ลาดกระบัง', 'ยานนาวา', 'สัมพันธวงศ์', 'พญาไท', 'ธนบุรี', 'บางกอกใหญ่', 'ห้วยขวาง', 'คลองสาน', 'ตลิ่งชัน', 'บางกอกน้อย',
+  'บางขุนเทียน', 'ภาษีเจริญ', 'หนองแขม', 'ราษฎร์บูรณะ', 'บางพลัด', 'ดินแดง', 'บึงกุ่ม', 'สาทร', 'บางซื่อ', 'จตุจักร',
+  'บางคอแหลม', 'ประเวศ', 'คลองเตย', 'สวนหลวง', 'จอมทอง', 'ดอนเมือง', 'ราชเทวี', 'ลาดพร้าว', 'วัฒนา', 'บางแค',
+  'หลักสี่', 'สายไหม', 'คันนายาว', 'สะพานสูง', 'วังทองหลาง', 'คลองสามวา', 'บางนา', 'ทวีวัฒนา', 'ทุ่งครุ', 'บางบอน'];
+const G_BKK = 'กรุงเทพมหานคร (50 เขต)', G_REG = 'ตำรวจภูธร (ภาค)';
+
+// รายการเขตที่เปิดรับ (ชื่อ ≠ ว่าง และ รับได้ > 0) พร้อมจำนวนที่สมัครแล้ว/เหลือ
+function areas_() {
+  const sh = ss_().getSheetByName(T_AREAS);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const n = sh.getLastRow() - 1;
+  const base = sh.getRange(2, 1, n, 3).getValues();
+  const desc = sh.getRange(2, AREA_DESC_COL, n, 1).getValues();
+  const taken = {};
+  const tt = ss_().getSheetByName(T_TEAM);
+  if (tt && tt.getLastRow() >= 2) {
+    tt.getRange(2, TEAM_AREA_COL, tt.getLastRow() - 1, 1).getValues().forEach(function (r) {
+      const a = String(r[0]).trim();
+      if (a) taken[a] = (taken[a] || 0) + 1;
+    });
+  }
+  const out = [];
+  base.forEach(function (r, i) {
+    const name = String(r[0]).trim(), cap = Number(r[2]) || 0;
+    if (!name || cap <= 0) return;
+    const t = taken[name] || 0;
+    out.push({ name: name, group: String(r[1]).trim() || 'อื่น ๆ', cap: cap, taken: t, left: Math.max(0, cap - t),
+      desc: String(desc[i][0] || '').trim() });
+  });
+  return out;
+}
+
+function areaList_(p) {
+  checkSession_(p.session);
+  const list = areas_();
+  return { ok: true, cap: list.reduce(function (s, a) { return s + a.cap; }, 0), taken: list.reduce(function (s, a) { return s + a.taken; }, 0),
+    areas: list.map(function (a) { return { n: a.name, g: a.group, cap: a.cap, left: a.left, d: a.desc }; }) };
+}
+
+function teamArea_(uid) {
+  const sh = ss_().getSheetByName(T_TEAM);
+  const row = sh ? findRow_(sh, 1, uid) : 0;
+  return row ? String(sh.getRange(row, TEAM_AREA_COL).getValue() || '') : '';
+}
+
+// จองที่นั่งตอนสมัครทีมงาน (เรียกในล็อกของ adminClaim_) — ไม่มีรายการเขตในชีต = ไม่บังคับเลือก (ใช้แบบเดิม)
+function claimSeat_(uid, me, areaName) {
+  if (teamSet_(true)[uid]) return teamArea_(uid);
+  const list = areas_();
+  if (!list.length) { addTeam_(uid, me, ''); return ''; }
+  const want = String(areaName || '').trim();
+  if (!want) throw fail_('กรุณาเลือกเขตพื้นที่ที่คุณจะดูแล', 'area');
+  const a = list.filter(function (x) { return x.name === want; })[0];
+  if (!a) throw fail_('ไม่พบเขตพื้นที่นี้ (หรือยังไม่เปิดรับ) — เลือกใหม่อีกครั้ง', 'area');
+  if (a.left <= 0) throw fail_('เขตนี้เต็มแล้ว (รับ ' + a.cap + ' คน) — เลือกเขตอื่นนะครับ', 'full');
+  addTeam_(uid, me, a.name);
+  return a.name;
+}
+
+function setupAreas() {
+  const ss = ss_();
+  teamTab_();
+  const tt = ss.getSheetByName(T_TEAM);
+  tt.getRange(1, TEAM_AREA_COL).setValue('เขตพื้นที่').setFontWeight('bold').setBackground('#e8f5e9');
+  tt.setColumnWidth(TEAM_AREA_COL, 200);
+  let sh = ss.getSheetByName(T_AREAS);
+  if (sh) {
+    Logger.log('มีแท็บ "' + T_AREAS + '" อยู่แล้ว — ไม่แตะข้อมูลเดิม (เพิ่มเขตใหม่: เติมแถวท้ายตาราง)');
+  } else {
+    sh = ss.insertSheet(T_AREAS, 3);
+    const head = ['เขตพื้นที่', 'กลุ่ม', 'รับได้ (คน)', 'สมัครแล้ว (คน)', 'เหลือ (ที่)', 'รายชื่อทีมงานในเขต', 'คำอธิบาย (โชว์ต่อท้ายชื่อ เช่น จังหวัดในภาค)'];
+    const rows = [];
+    BKK_DISTRICTS.forEach(function (d) { rows.push(['เขต' + d, G_BKK, 2, '', '', '', '']); });
+    for (let i = 1; i <= 9; i++) rows.push(['ตำรวจภูธรภาค ' + i, G_REG, 2, '', '', '', '']);
+    rows.push(['ภาคพิเศษ', G_REG, 2, '', '', '', '']);   // ภาคที่ 10
+    sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold').setBackground('#e8f5e9');
+    sh.getRange(2, 1, rows.length, head.length).setValues(rows);
+    const t = "'" + T_TEAM + "'";
+    const f = [];
+    for (let r = 2; r <= AREA_ROWS; r++) {
+      f.push(['=IF(A' + r + '="","",COUNTIF(' + t + '!$G:$G,A' + r + '))',
+        '=IF(A' + r + '="","",IF(C' + r + '="","",C' + r + '-D' + r + '))',
+        '=IF(A' + r + '="","",IFERROR(TEXTJOIN(", ",TRUE,FILTER(' + t + '!$B:$B,' + t + '!$G:$G=A' + r + ')),""))']);
+    }
+    sh.getRange(2, 4, f.length, 3).setFormulas(f);
+    sh.getRange(1, 9, 5, 2).setValues([
+      ['รวมที่นั่ง', '=SUM(C2:C' + AREA_ROWS + ')'], ['สมัครแล้ว', '=SUM(D2:D' + AREA_ROWS + ')'], ['คงเหลือ', '=J1-J2'],
+      ['วิธีใช้', 'เพิ่มเขตใหม่: เติมแถวท้ายตาราง (ชื่อ · กลุ่ม · รับได้) · รับได้ = 0 คือปิดไม่ให้เลือก · ลบทีมงานในแท็บ "ทีมงาน" = คืนที่นั่ง'],
+      ['', '']]);
+    sh.getRange('I1:I4').setFontWeight('bold');
+    sh.getRange('C2:C' + AREA_ROWS).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireNumberBetween(0, 99).setAllowInvalid(false).build()).setBackground('#fff8e1');
+    sh.setFrozenRows(1);
+    [210, 190, 90, 110, 90, 320, 260, 110, 300].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  }
+  tt.getRange(2, TEAM_AREA_COL, 999, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInRange(sh.getRange('A2:A' + AREA_ROWS), true).setAllowInvalid(false).build());
+  const list = areas_();
+  Logger.log('พร้อมแล้ว — ' + list.length + ' เขตที่เปิดรับ · ที่นั่งรวม ' +
+    list.reduce(function (s, a) { return s + a.cap; }, 0) + ' (กรุงเทพ 50 เขต + ตำรวจภูธรภาค 1–9 + ภาคพิเศษ)');
+}
+
+// ทดสอบ: เขตว่าง 1 เขต รับได้ 2 → คนที่ 1-2 ผ่าน, คนที่ 3 "full" · ไม่เลือกเขต/เลือกเขตมั่ว "area" · แล้วลบแถวทดสอบทิ้ง
+function testAreaCap() {
+  const list = areas_();
+  const a = list.filter(function (x) { return x.left === x.cap; })[0];
+  if (!a) throw new Error('ไม่มีเขตว่างให้ทดสอบ — รัน setupAreas ก่อน');
+  const tt = teamTab_();
+  const ids = [1, 2, 3, 4, 5].map(function (i) { return 'Utest' + i + rand_(6); });
+  const me = function (i) { return { name: 'ทดสอบ' + i, ref: 'T' + i + rand_(5) }; };
+  const code = function (fn) { try { fn(); return 'ผ่าน'; } catch (e) { return String(e.code || e.message); } };
+  let r;
+  try {
+    r = [
+      code(function () { claimSeat_(ids[0], me(1), a.name); }),
+      code(function () { claimSeat_(ids[1], me(2), a.name); }),
+      code(function () { claimSeat_(ids[2], me(3), a.name); }),
+      code(function () { claimSeat_(ids[3], me(4), ''); }),
+      code(function () { claimSeat_(ids[4], me(5), 'เขตที่ไม่มีจริง'); }),
+    ];
+    const again = claimSeat_(ids[0], me(1), 'เขตอื่น');   // คนเดิมสมัครซ้ำ → ไม่ย้ายเขต ไม่กินที่เพิ่ม
+    r.push(again === a.name ? 'ผ่าน' : 'ย้ายเขต?');
+  } finally {
+    ids.forEach(function (id) { const row = findRow_(tt, 1, id); if (row) tt.deleteRow(row); });
+    CacheService.getScriptCache().removeAll(['team_set']);
+  }
+  const after = areas_().filter(function (x) { return x.name === a.name; })[0];
+  const want = ['ผ่าน', 'ผ่าน', 'full', 'area', 'area', 'ผ่าน'];
+  const names = ['คนที่ 1 ผ่าน', 'คนที่ 2 ผ่าน', 'คนที่ 3 เต็ม (full)', 'ไม่เลือกเขต (area)', 'เขตมั่ว (area)', 'สมัครซ้ำไม่ย้ายเขต'];
+  names.forEach(function (n, i) { Logger.log((r[i] === want[i] ? '✅ ' : '❌ ') + n + ' → ' + r[i]); });
+  const clean = after && after.left === a.left;
+  Logger.log((clean ? '✅ ' : '❌ ') + 'ลบแถวทดสอบแล้ว ที่นั่งกลับเป็น ' + (after ? after.left : '?') + '/' + a.cap + ' (เขตที่ทดสอบ: ' + a.name + ')');
 }

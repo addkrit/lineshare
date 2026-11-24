@@ -43,7 +43,7 @@
   .center { text-align: center; }
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #222; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: 90%; z-index: 9; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
-  input[type=text], textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  input[type=text], textarea, select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
   textarea { min-height: 220px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
   .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
   .tabs button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; font-weight: 600; }
@@ -111,6 +111,7 @@
     <!-- ทีมงาน: ยอดของตัวเอง -->
     <div class="card" id="teamCard" hidden>
       <h2>👥 ยอดของคุณ (ทีมงาน)</h2>
+      <p class="muted" id="tmArea" style="margin:-4px 0 8px" hidden></p>
       <div class="tabs" id="tmPeriod">
         <button data-p="m" class="on">เดือนนี้</button><button data-p="y">ปีนี้</button><button data-p="all">ทั้งหมด</button>
       </div>
@@ -132,6 +133,12 @@
     <div class="card">
       <h2 id="claimTitle">เข้าหน้าแอดมิน</h2>
       <p class="muted" id="claimHelp">ใส่รหัสแอดมิน (ดูได้ใน Apps Script: เลือกฟังก์ชัน <code>showAdminCode</code> แล้วกด Run)</p>
+      <div id="claimAreaBox" hidden>
+        <label for="claimArea">1) เลือกเขตพื้นที่ที่คุณจะดูแล</label>
+        <select id="claimArea"><option value="">— เลือกเขตพื้นที่ —</option></select>
+        <p class="muted" id="claimAreaHint" style="margin:6px 0 0"></p>
+        <label for="claimCode">2) ใส่รหัสทีมงาน</label>
+      </div>
       <input type="text" id="claimCode" inputmode="numeric" placeholder="รหัส 6 หลัก">
       <button class="btn primary" id="btnClaim">ยืนยัน</button>
     </div>
@@ -433,13 +440,45 @@ async function teamMain() {
   $('#claimTitle').textContent = 'เข้าร่วมทีมงาน';
   $('#claimHelp').textContent = 'ใส่รหัสทีมงานที่ได้จากแอดมิน (ใส่ครั้งเดียว) แล้วคุณจะเห็นยอดแชร์/ชวนของตัวเอง';
   $('#claimCode').placeholder = 'รหัสทีมงาน 6 หลัก';
+  await loadAreas();
   show('vClaim');
+}
+// ช่องเลือกเขตพื้นที่ (ตัวเลือกมาจากแท็บ "เขตพื้นที่" ในชีต — เต็มแล้วกดไม่ได้) · ชีตไม่มีเขต = ซ่อนช่องนี้
+async function loadAreas() {
+  const box = $('#claimAreaBox');
+  let list = [];
+  try { list = (await api('areas', { session: S.session })).areas || []; } catch (e) { list = []; }
+  S.areas = list;
+  if (!list.length) { box.hidden = true; return; }
+  const sel = $('#claimArea');
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">— เลือกเขตพื้นที่ —</option>';
+  const groups = {};
+  list.forEach((a) => { (groups[a.g] = groups[a.g] || []).push(a); });
+  Object.keys(groups).forEach((g) => {
+    const og = document.createElement('optgroup');
+    og.label = g + ' · เหลือ ' + groups[g].reduce((s, a) => s + a.left, 0) + ' ที่';
+    groups[g].forEach((a) => {
+      const o = document.createElement('option');
+      o.value = a.n;
+      o.disabled = a.left <= 0;
+      o.textContent = a.n + (a.d ? ' (' + a.d + ')' : '') + (a.left <= 0 ? ' — เต็มแล้ว' : ' — เหลือ ' + a.left + ' ที่');
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  if (keep && list.some((a) => a.n === keep && a.left > 0)) sel.value = keep;
+  const left = list.reduce((s, a) => s + a.left, 0), cap = list.reduce((s, a) => s + a.cap, 0);
+  $('#claimAreaHint').textContent = 'เหลือ ' + left + ' ที่นั่ง จากทั้งหมด ' + cap + ' · เลือกได้ 1 เขต มาก่อนได้ก่อน';
+  box.hidden = false;
 }
 async function loadTeamMe() {
   try {
     const r = await api('teamMe', { session: S.session });
     if (!r.team) return;
     S.tm = r;
+    $('#tmArea').hidden = !r.area;
+    if (r.area) $('#tmArea').textContent = '📍 เขตของคุณ: ' + r.area;
     $('#teamCard').hidden = false;
     showTeamPeriod(S.tmP || 'm');
   } catch (e) { toast(e.message); }
@@ -479,12 +518,18 @@ $('#btnCopy').onclick = () => copyText(S.shareUrl, 'คัดลอกลิง�
 $('#btnFriend').onclick = () => liff.openWindow({ url: 'https://line.me/R/ti/p/' + encodeURIComponent(CFG.OA_ID), external: false });
 $('#btnAdmin').onclick = () => { location.search = '?admin=1'; };
 $('#btnClaim').onclick = async () => {
+  const needArea = !$('#claimAreaBox').hidden;
+  const area = needArea ? $('#claimArea').value : '';
+  if (needArea && !area) { toast('กรุณาเลือกเขตพื้นที่ก่อน'); return; }
   $('#btnClaim').disabled = true;
   try {
-    const r = await api('adminClaim', { session: S.session, code: $('#claimCode').value });
+    const r = await api('adminClaim', { session: S.session, code: $('#claimCode').value, area });
     if (r.role === 'admin') { S.admin = true; toast('เป็นแอดมินแล้ว'); openAdmin(); }
-    else { S.team = true; toast('เข้าร่วมทีมงานแล้ว 🎉'); renderMain({ isNew: false }); await loadTeamMe(); }
-  } catch (e) { toast(e.message); }
+    else { S.team = true; toast('เข้าร่วมทีมงานแล้ว 🎉' + (r.area ? ' · ' + r.area : '')); renderMain({ isNew: false }); await loadTeamMe(); }
+  } catch (e) {
+    toast(e.message);
+    if (needArea && (e.code === 'full' || e.code === 'area')) await loadAreas();   // ที่นั่งเปลี่ยน: โหลดรายการใหม่
+  }
   $('#btnClaim').disabled = false;
 };
 document.querySelectorAll('#vAdmin > .tabs button').forEach((btn) => {
